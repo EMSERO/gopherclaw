@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# gopherclaw-restart — restart the gopherclaw-gateway systemd user service
+set -euo pipefail
+
+SERVICE="gopherclaw-gateway.service"
+
+echo "Restarting $SERVICE..."
+systemctl --user restart "$SERVICE"
+
+# Wait briefly and check status
+sleep 1
+if systemctl --user is-active --quiet "$SERVICE"; then
+    echo "$SERVICE is running."
+else
+    echo "$SERVICE failed to start. Check logs with: journalctl --user -u $SERVICE -n 50"
+    exit 1
+fi

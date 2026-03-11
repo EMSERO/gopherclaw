@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Build
+        run: |
+          go build -ldflags "\
+            -X main.version=0.1.0-ci \
+            -X main.commit=$(git rev-parse --short HEAD) \
+            -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            ./cmd/gopherclaw
+          go build ./...
+
+      - name: Test with coverage and race detector
+        run: go test -race ./... -coverprofile=coverage.out -count=1 -timeout 180s
+
+      - name: Check coverage threshold
+        run: |
+          COVERAGE=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | tr -d '%')
+          echo "Total coverage: ${COVERAGE}%"
+          if (( $(echo "$COVERAGE < 78" | bc -l) )); then
+            echo "::error::Coverage ${COVERAGE}% is below 78% threshold"
+            exit 1
+          fi
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.10.1

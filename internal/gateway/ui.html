@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0d1117">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.json">
+<title>GopherClaw</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace; background: #0d1117; color: #c9d1d9; min-height: 100vh; display: flex; flex-direction: column; }
+
+  /* Tab bar */
+  .tab-bar { display: flex; background: #161b22; border-bottom: 1px solid #30363d; padding: 0 16px; gap: 0; position: sticky; top: 0; z-index: 10; }
+  .tab-bar button { background: none; border: none; color: #8b949e; padding: 10px 16px; cursor: pointer; font-family: inherit; font-size: 0.85em; border-bottom: 2px solid transparent; transition: color 0.15s, border-color 0.15s; }
+  .tab-bar button:hover { color: #c9d1d9; }
+  .tab-bar button.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+  .tab-bar .spacer { flex: 1; }
+  .tab-bar .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #484f58; align-self: center; margin-right: 8px; transition: background 0.3s; }
+  .tab-bar .status-dot.ok { background: #3fb950; }
+  .tab-bar .status-dot.err { background: #f85149; }
+
+  /* Tab content */
+  .tab-content { display: none; flex: 1; padding: 20px; overflow-y: auto; }
+  .tab-content.active { display: flex; flex-direction: column; }
+
+  /* Cards */
+  .card { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 16px; margin-bottom: 12px; }
+  .card-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .card-row .card { flex: 1; min-width: 200px; }
+  .label { color: #8b949e; font-size: 0.75em; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; }
+  .value { font-size: 1.05em; }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+  th { text-align: left; color: #8b949e; border-bottom: 1px solid #30363d; padding: 6px 8px; font-weight: normal; text-transform: uppercase; font-size: 0.8em; letter-spacing: 0.5px; }
+  td { padding: 6px 8px; border-bottom: 1px solid #21262d; }
+  .empty { color: #484f58; font-style: italic; padding: 12px 0; }
+
+  /* Buttons */
+  .btn { background: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 12px; border-radius: 4px; cursor: pointer; font-family: inherit; font-size: 0.8em; transition: background 0.15s; }
+  .btn:hover { background: #30363d; }
+  .btn-danger { border-color: #f85149; color: #f85149; }
+  .btn-danger:hover { background: #3d1f1f; }
+  .btn-primary { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  .btn-primary:hover { background: #388bfd; }
+  .btn-sm { padding: 2px 8px; font-size: 0.75em; }
+
+  /* Badges */
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 0.75em; font-weight: bold; }
+  .badge-green { background: #0d3320; color: #3fb950; }
+  .badge-red { background: #3d1f1f; color: #f85149; }
+  .badge-yellow { background: #3d2e00; color: #d29922; }
+  .badge-blue { background: #0c2d6b; color: #58a6ff; }
+
+  /* Channel status cards */
+  .channel-card { display: flex; align-items: center; gap: 12px; }
+  .channel-card .ch-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+  .channel-card .ch-info { flex: 1; }
+  .channel-card .ch-name { font-size: 0.95em; text-transform: capitalize; }
+  .channel-card .ch-detail { font-size: 0.75em; color: #8b949e; }
+
+  /* Chat */
+  .chat-container { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .chat-header { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+  .chat-header select { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-family: inherit; font-size: 0.85em; }
+  .chat-messages { flex: 1; overflow-y: auto; padding: 8px; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; margin-bottom: 12px; min-height: 200px; }
+  .chat-msg { margin-bottom: 10px; max-width: 85%; padding: 8px 12px; border-radius: 8px; font-size: 0.88em; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; }
+  .chat-msg.user { background: #1f6feb; color: #fff; margin-left: auto; border-bottom-right-radius: 2px; }
+  .chat-msg.assistant { background: #21262d; border-bottom-left-radius: 2px; }
+  .chat-msg.system { background: #1c1e26; color: #8b949e; font-size: 0.8em; text-align: center; max-width: 100%; border-radius: 4px; }
+  .chat-msg.tool { background: #0d2818; color: #7ee787; font-size: 0.8em; max-width: 100%; border-radius: 4px; }
+
+  /* Tool-call cards (streaming) */
+  .tool-card { background: #161b22; border: 1px solid #30363d; border-radius: 6px; margin-bottom: 8px; max-width: 100%; font-size: 0.82em; overflow: hidden; }
+  .tool-card-header { display: flex; align-items: center; gap: 6px; padding: 6px 10px; cursor: pointer; user-select: none; }
+  .tool-card-header:hover { background: #1c2128; }
+  .tool-card-header .tool-icon { font-size: 1em; }
+  .tool-card-header .tool-name { color: #79c0ff; font-weight: 600; }
+  .tool-card-header .tool-status { margin-left: auto; font-size: 0.85em; }
+  .tool-card-header .tool-status.running { color: #d29922; }
+  .tool-card-header .tool-status.done { color: #3fb950; }
+  .tool-card-header .tool-status.error { color: #f85149; }
+  .tool-card-body { display: none; border-top: 1px solid #30363d; padding: 8px 10px; font-size: 0.9em; color: #8b949e; white-space: pre-wrap; word-break: break-all; max-height: 200px; overflow-y: auto; }
+  .tool-card.expanded .tool-card-body { display: block; }
+  @keyframes tool-spin { to { transform: rotate(360deg); } }
+  .tool-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid #d29922; border-top-color: transparent; border-radius: 50%; animation: tool-spin 0.8s linear infinite; }
+
+  /* Mobile responsiveness */
+  @media (max-width: 600px) {
+    .tab-bar { padding: 0 4px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+    .tab-bar button { padding: 8px 10px; font-size: 0.78em; white-space: nowrap; }
+    .tab-content { padding: 10px; }
+    .card { padding: 10px; }
+    .card-row { flex-direction: column; }
+    .chat-msg { max-width: 95%; font-size: 0.85em; }
+    .chat-input-row textarea { font-size: 16px; /* prevents iOS zoom */ }
+    .chat-header { flex-wrap: wrap; gap: 4px; }
+    .chat-header select { max-width: 150px; }
+    .cron-add { flex-direction: column; }
+    .cron-add input { width: 100% !important; }
+    .tool-card { font-size: 0.8em; }
+  }
+  .chat-input-row { display: flex; gap: 8px; }
+  .chat-input-row textarea { flex: 1; background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 8px 12px; border-radius: 6px; font-family: inherit; font-size: 0.88em; resize: none; min-height: 42px; max-height: 120px; }
+  .chat-input-row textarea:focus { outline: none; border-color: #58a6ff; }
+
+  /* Cron */
+  .cron-add { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .cron-add input { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 10px; border-radius: 4px; font-family: inherit; font-size: 0.85em; }
+  .cron-add input[name=spec] { width: 120px; }
+  .cron-add input[name=instruction] { flex: 1; min-width: 200px; }
+
+  /* Config */
+  .config-pre { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 16px; overflow: auto; font-size: 0.82em; line-height: 1.6; flex: 1; white-space: pre-wrap; word-break: break-word; }
+
+  /* Logs */
+  .log-toolbar { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+  .log-toolbar input { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 4px 8px; border-radius: 4px; font-family: inherit; font-size: 0.82em; width: 180px; }
+  .log-container { flex: 1; overflow-y: auto; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: 8px; font-size: 0.78em; line-height: 1.6; min-height: 200px; }
+  .log-line { white-space: pre-wrap; word-break: break-all; }
+  .log-line .log-ts { color: #484f58; }
+  .log-line .log-debug { color: #8b949e; }
+  .log-line .log-info { color: #58a6ff; }
+  .log-line .log-warn { color: #d29922; }
+  .log-line .log-error { color: #f85149; }
+
+  /* Toggle switch */
+  .toggle { position: relative; display: inline-block; width: 36px; height: 20px; vertical-align: middle; }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle .slider { position: absolute; cursor: pointer; inset: 0; background: #30363d; border-radius: 20px; transition: background 0.2s; }
+  .toggle .slider::before { content: ''; position: absolute; width: 14px; height: 14px; left: 3px; bottom: 3px; background: #8b949e; border-radius: 50%; transition: transform 0.2s, background 0.2s; }
+  .toggle input:checked + .slider { background: #238636; }
+  .toggle input:checked + .slider::before { transform: translateX(16px); background: #fff; }
+
+  /* Verified badge */
+  .verified-icon { display: inline-block; color: #58a6ff; font-size: 0.85em; margin-left: 4px; vertical-align: middle; title: 'Verified'; }
+
+  /* Flex helpers */
+  .flex-between { display: flex; justify-content: space-between; align-items: center; }
+  .gap-8 { gap: 8px; }
+  .mt-8 { margin-top: 8px; }
+  .mt-12 { margin-top: 12px; }
+</style>
+</head>
+<body>
+
+<div class="tab-bar">
+  <div class="status-dot" id="statusDot"></div>
+  <button class="active" onclick="switchTab('dashboard')">Dashboard</button>
+  <button onclick="switchTab('chat')">Chat</button>
+  <button onclick="switchTab('cron')">Cron</button>
+  <button onclick="switchTab('usage')">Usage</button>
+  <button onclick="switchTab('config')">Config</button>
+  <button onclick="switchTab('logs')">Logs</button>
+  <div class="spacer"></div>
+  <button class="tab-bar-token" onclick="promptToken()" id="tokenBtn" style="background:none;border:none;color:#8b949e;font-size:0.7em;cursor:pointer;padding:10px 8px;font-family:inherit" title="Set auth token"></button>
+  <span style="align-self:center;color:#8b949e;font-size:0.75em" id="connText">connecting...</span>
+</div>
+
+<!-- Dashboard Tab -->
+<div class="tab-content active" id="tab-dashboard">
+  <div class="card-row">
+    <div class="card">
+      <div class="label">Status</div>
+      <div class="value" id="statusValue">Connecting...</div>
+    </div>
+    <div class="card">
+      <div class="label">Version</div>
+      <div class="value" id="versionValue">—</div>
+    </div>
+    <div class="card">
+      <div class="label">Primary Model</div>
+      <div class="value" id="modelValue">—</div>
+    </div>
+    <div class="card">
+      <div class="label">Fallbacks</div>
+      <div class="value" id="fallbacksValue">—</div>
+    </div>
+    <div class="card" id="cronCard" style="display:none">
+      <div class="label">Cron Jobs</div>
+      <div class="value" id="cronValue">—</div>
+    </div>
+    <div class="card" id="taskCard" style="display:none">
+      <div class="label">Task Queue</div>
+      <div class="value" id="taskValue">—</div>
+    </div>
+  </div>
+
+  <div class="card" id="channelsCard" style="display:none">
+    <div class="label">Channels</div>
+    <div id="channelsList" class="mt-8"></div>
+  </div>
+
+  <div class="card">
+    <div class="flex-between">
+      <div class="label">Active Sessions</div>
+      <button class="btn btn-danger btn-sm" onclick="clearAll()">Clear All</button>
+    </div>
+    <div id="sessionsList" class="mt-8">
+      <span class="empty">No active sessions</span>
+    </div>
+  </div>
+
+  <div class="card" id="skillsCard" style="display:none">
+    <div class="flex-between">
+      <div class="label">Skills</div>
+    </div>
+    <div id="skillsList" class="mt-8">
+      <span class="empty">No skills loaded</span>
+    </div>
+  </div>
+
+  <div class="card" id="taskQueueCard" style="display:none">
+    <div class="flex-between">
+      <div class="label">Task Queue</div>
+      <button class="btn btn-sm" onclick="loadTasks()">Refresh</button>
+    </div>
+    <div id="taskQueueList" class="mt-8">
+      <span class="empty">No active tasks</span>
+    </div>
+  </div>
+
+  <div class="card" id="usageSummaryCard" style="display:none">
+    <div class="flex-between">
+      <div class="label">Token Usage (Aggregate)</div>
+    </div>
+    <div class="card-row mt-8" id="usageSummaryRow">
+      <div class="card"><div class="label">Input</div><div class="value" id="usageInTotal">—</div></div>
+      <div class="card"><div class="label">Output</div><div class="value" id="usageOutTotal">—</div></div>
+      <div class="card"><div class="label">Total</div><div class="value" id="usageTokTotal">—</div></div>
+    </div>
+  </div>
+
+  <div style="color:#484f58;font-size:0.7em;margin-top:8px;text-align:right" id="lastUpdate">—</div>
+</div>
+
+<!-- Usage Tab -->
+<div class="tab-content" id="tab-usage">
+  <div class="card">
+    <div class="flex-between">
+      <div class="label">Aggregate Token Usage</div>
+      <button class="btn btn-sm" onclick="loadUsage()">Refresh</button>
+    </div>
+    <div class="card-row mt-8" id="usageAggRow">
+      <div class="card"><div class="label">Input Tokens</div><div class="value" id="uaInput">—</div></div>
+      <div class="card"><div class="label">Output Tokens</div><div class="value" id="uaOutput">—</div></div>
+      <div class="card"><div class="label">Total Tokens</div><div class="value" id="uaTotal">—</div></div>
+      <div class="card"><div class="label">Cache Read</div><div class="value" id="uaCacheRead">—</div></div>
+      <div class="card"><div class="label">Cache Write</div><div class="value" id="uaCacheWrite">—</div></div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="label">Per-Session Usage</div>
+    <div id="usageSessionList" class="mt-8">
+      <span class="empty">Loading...</span>
+    </div>
+  </div>
+</div>
+
+<!-- Chat Tab -->
+<div class="tab-content" id="tab-chat">
+  <div class="chat-container">
+    <div class="chat-header">
+      <select id="chatSession"></select>
+      <button class="btn btn-sm" onclick="loadHistory()">Load</button>
+      <button class="btn btn-sm" onclick="clearChatSession()">Clear Session</button>
+      <div class="spacer"></div>
+      <button class="btn btn-danger btn-sm" id="abortBtn" style="display:none" onclick="abortChat()">Stop</button>
+    </div>
+    <div class="chat-messages" id="chatMessages"></div>
+    <div class="chat-input-row">
+      <textarea id="chatInput" placeholder="Send a message..." rows="1" onkeydown="chatKeydown(event)"></textarea>
+      <button class="btn btn-primary" onclick="sendChat()">Send</button>
+    </div>
+  </div>
+</div>
+
+<!-- Cron Tab -->
+<div class="tab-content" id="tab-cron">
+  <div class="card">
+    <div class="label">Add Job</div>
+    <div class="cron-add mt-8">
+      <input name="spec" placeholder="@daily or HH:MM" id="cronSpec">
+      <input name="instruction" placeholder="Instruction for the agent..." id="cronInstruction">
+      <button class="btn btn-primary" onclick="addCron()">Add</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="label">Jobs</div>
+    <div id="cronList" class="mt-8">
+      <span class="empty">Loading...</span>
+    </div>
+  </div>
+  <div class="card" id="cronHistoryCard" style="display:none">
+    <div class="flex-between">
+      <div class="label">Run History</div>
+      <div>
+        <select id="cronHistoryJob" onchange="loadCronHistory()" style="background:#161b22;border:1px solid #30363d;color:#c9d1d9;padding:4px 8px;border-radius:4px;font-family:inherit;font-size:0.82em"></select>
+        <button class="btn btn-sm" onclick="loadCronHistory()">Refresh</button>
+      </div>
+    </div>
+    <div id="cronHistoryList" class="mt-8">
+      <span class="empty">Select a job above</span>
+    </div>
+  </div>
+</div>
+
+<!-- Config Tab -->
+<div class="tab-content" id="tab-config">
+  <div class="card" style="flex:1;display:flex;flex-direction:column">
+    <div class="flex-between" style="margin-bottom:8px">
+      <div class="label">Configuration (redacted)</div>
+      <button class="btn btn-sm" onclick="loadConfig()">Refresh</button>
+    </div>
+    <pre class="config-pre" id="configPre">Loading...</pre>
+  </div>
+</div>
+
+<!-- Logs Tab -->
+<div class="tab-content" id="tab-logs">
+  <div class="log-toolbar">
+    <input type="text" placeholder="Filter logs..." id="logFilter" oninput="filterLogs()">
+    <button class="btn btn-sm" id="logPauseBtn" onclick="toggleLogPause()">Pause</button>
+    <button class="btn btn-sm" onclick="clearLogs()">Clear</button>
+    <div class="spacer"></div>
+    <span style="color:#484f58;font-size:0.75em" id="logCount">0 lines</span>
+  </div>
+  <div class="log-container" id="logContainer"></div>
+</div>
+
+<script>
+// --- Globals ---
+const basePath = window.location.pathname.replace(/\/$/, '');
+const params = new URLSearchParams(window.location.search);
+const _injectedToken = "__GATEWAY_TOKEN__";
+const urlToken = params.get('token');
+if (urlToken) { localStorage.setItem('gc_token', urlToken); }
+let token = urlToken || localStorage.getItem('gc_token') || (_injectedToken !== '__GATEWAY' + '_TOKEN__' ? _injectedToken : '');
+let authHeaders = token ? {'Content-Type':'application/json','Authorization':'Bearer '+token} : {'Content-Type':'application/json'};
+let wsData = {};
+let ws;
+let logPaused = false;
+let logLines = [];
+const LOG_MAX = 500;
+let chatAbort = null;
+let chatStreaming = false;
+let logEventSource = null;
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// --- Tab manager ---
+function switchTab(name) {
+  document.querySelectorAll('.tab-bar button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  const btn = document.querySelector(`.tab-bar button[onclick="switchTab('${name}')"]`);
+  if (btn) btn.classList.add('active');
+  const tab = document.getElementById('tab-' + name);
+  if (tab) tab.classList.add('active');
+
+  if (name === 'cron') loadCron();
+  if (name === 'config') loadConfig();
+  if (name === 'usage') loadUsage();
+  if (name === 'logs') startLogStream();
+  if (name !== 'logs') stopLogStream();
+}
+
+// --- WebSocket for dashboard status ---
+function connectWS() {
+  const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsURL = wsProto + '//' + location.host + basePath + '/ws' + (token ? '?token=' + encodeURIComponent(token) : '');
+  ws = new WebSocket(wsURL);
+
+  ws.onopen = () => {
+    document.getElementById('statusDot').className = 'status-dot ok';
+    document.getElementById('connText').textContent = 'connected';
+    document.getElementById('statusValue').textContent = 'Running';
+  };
+
+  ws.onclose = (e) => {
+    document.getElementById('statusDot').className = 'status-dot err';
+    document.getElementById('connText').textContent = 'disconnected' + (e.code ? ' (' + e.code + ')' : '');
+    document.getElementById('statusValue').textContent = 'Disconnected';
+    setTimeout(connectWS, 5000);
+  };
+
+  ws.onmessage = (e) => {
+    wsData = JSON.parse(e.data);
+    renderDashboard(wsData);
+  };
+}
+
+function renderDashboard(d) {
+  document.getElementById('versionValue').textContent = d.version || '—';
+  document.getElementById('modelValue').textContent = d.model || '—';
+  document.getElementById('fallbacksValue').textContent = (d.fallbacks && d.fallbacks.length) ? d.fallbacks.join(', ') : 'none';
+  document.getElementById('lastUpdate').textContent = 'Updated: ' + new Date(d.timestamp * 1000).toLocaleTimeString();
+
+  // Channels
+  if (d.channels && d.channels.length > 0) {
+    document.getElementById('channelsCard').style.display = '';
+    let html = '<div class="card-row">';
+    d.channels.forEach(ch => {
+      const color = ch.connected ? '#3fb950' : '#f85149';
+      const statusBadge = ch.connected ? '<span class="badge badge-green">connected</span>' : '<span class="badge badge-red">offline</span>';
+      html += '<div class="card"><div class="channel-card">' +
+        '<div class="ch-dot" style="background:' + color + '"></div>' +
+        '<div class="ch-info"><div class="ch-name">' + esc(ch.name) + '</div>' +
+        '<div class="ch-detail">' + (ch.username ? '@' + esc(ch.username) : '') + ' &middot; ' + (ch.pairedCount || 0) + ' paired</div></div>' +
+        statusBadge + '</div></div>';
+    });
+    html += '</div>';
+    document.getElementById('channelsList').innerHTML = html;
+  } else {
+    document.getElementById('channelsCard').style.display = 'none';
+  }
+
+  // Cron summary
+  if (d.cron) {
+    document.getElementById('cronCard').style.display = '';
+    document.getElementById('cronValue').textContent = d.cron.enabled + '/' + d.cron.total + ' enabled';
+  }
+
+  // Sessions
+  const sc = document.getElementById('sessionsList');
+  const sessionSelect = document.getElementById('chatSession');
+  const prevSession = sessionSelect.value;
+
+  if (d.sessions && d.sessions.length > 0) {
+    let html = '<table><tr><th>Key</th><th>Messages</th><th>Last Active</th><th></th></tr>';
+    d.sessions.forEach(s => {
+      const eKey = esc(s.key);
+      html += '<tr><td>' + eKey + '</td><td>' + (s.messageCount !== undefined ? s.messageCount : '—') + '</td><td>' + esc(s.ago) + ' ago</td>' +
+        '<td><button class="btn btn-sm" onclick="clearSession(\'' + eKey.replace(/'/g, "\\'") + '\')">Clear</button></td></tr>';
+    });
+    html += '</table>';
+    sc.innerHTML = html;
+
+    // Update chat session dropdown
+    const opts = d.sessions.map(s => s.key);
+    const curOpts = Array.from(sessionSelect.options).map(o => o.value);
+    if (JSON.stringify(opts) !== JSON.stringify(curOpts)) {
+      sessionSelect.innerHTML = opts.map(k => '<option value="' + esc(k) + '">' + esc(k) + '</option>').join('');
+      if (prevSession && opts.includes(prevSession)) sessionSelect.value = prevSession;
+    }
+  } else {
+    sc.innerHTML = '<span class="empty">No active sessions</span>';
+  }
+
+  // Task queue summary
+  if (d.tasks) {
+    document.getElementById('taskCard').style.display = '';
+    document.getElementById('taskValue').textContent = d.tasks.running + ' running, ' + d.tasks.pending + ' pending';
+    if (d.tasks.running > 0 || d.tasks.pending > 0) {
+      document.getElementById('taskQueueCard').style.display = '';
+    }
+  }
+
+  // Skills
+  if (d.skills && d.skills.length > 0) {
+    document.getElementById('skillsCard').style.display = '';
+    let html = '<table><tr><th>Name</th><th>Origin</th><th>Enabled</th></tr>';
+    d.skills.forEach(sk => {
+      const safeName = esc(sk.name).replace(/'/g, "\\'");
+      const verifiedBadge = sk.verified ? '<span class="verified-icon" title="Verified">&#x2714;</span>' : '';
+      const originBadge = sk.origin === 'local' ? '<span class="badge badge-blue">local</span>' : '<span class="badge badge-yellow">' + esc(sk.origin) + '</span>';
+      const toggle = '<label class="toggle"><input type="checkbox"' + (sk.enabled ? ' checked' : '') +
+        ' onchange="toggleSkill(\'' + safeName + '\', this.checked)"><span class="slider"></span></label>';
+      html += '<tr><td>' + esc(sk.name) + verifiedBadge + '</td><td>' + originBadge + '</td><td>' + toggle + '</td></tr>';
+    });
+    html += '</table>';
+    document.getElementById('skillsList').innerHTML = html;
+  } else {
+    document.getElementById('skillsCard').style.display = 'none';
+  }
+}
+
+// --- Session actions ---
+function clearSession(key) {
+  if (!confirm('Clear session: ' + key + '?')) return;
+  fetch(basePath + '/sessions/clear', { method: 'POST', headers: authHeaders, body: JSON.stringify({key}) })
+    .then(r => r.json()).then(() => { if (ws) ws.send('refresh'); });
+}
+
+function clearAll() {
+  if (!confirm('Clear ALL sessions?')) return;
+  fetch(basePath + '/sessions/clear-all', { method: 'POST', headers: authHeaders })
+    .then(r => r.json()).then(() => { if (ws) ws.send('refresh'); });
+}
+
+// --- Chat ---
+function loadHistory() {
+  const key = document.getElementById('chatSession').value;
+  if (!key) return;
+  const container = document.getElementById('chatMessages');
+  container.innerHTML = '<span class="empty">Loading...</span>';
+  fetch(basePath + '/api/sessions/' + encodeURIComponent(key) + '/history', { headers: authHeaders })
+    .then(r => r.json())
+    .then(msgs => {
+      container.innerHTML = '';
+      if (!msgs || msgs.length === 0) {
+        container.innerHTML = '<span class="empty">No messages yet</span>';
+        return;
+      }
+      msgs.forEach(m => {
+        const div = document.createElement('div');
+        div.className = 'chat-msg ' + (m.role || 'system');
+        let text = m.content || '';
+        if (m.tool_calls && m.tool_calls.length) {
+          text += '\n[Tool calls: ' + m.tool_calls.map(tc => tc.function?.name || '?').join(', ') + ']';
+        }
+        if (m.name) text = '[' + m.name + '] ' + text;
+        div.textContent = text || '(empty)';
+        container.appendChild(div);
+      });
+      container.scrollTop = container.scrollHeight;
+    })
+    .catch(() => { container.innerHTML = '<span class="empty">Failed to load history</span>'; });
+}
+
+function clearChatSession() {
+  const key = document.getElementById('chatSession').value;
+  if (!key || !confirm('Clear session: ' + key + '?')) return;
+  fetch(basePath + '/sessions/clear', { method: 'POST', headers: authHeaders, body: JSON.stringify({key}) })
+    .then(() => {
+      document.getElementById('chatMessages').innerHTML = '<span class="empty">Session cleared</span>';
+      if (ws) ws.send('refresh');
+    });
+}
+
+function chatKeydown(e) {
+  if (e.key === 'Enter' && !e.shiftKey) {
+    e.preventDefault();
+    sendChat();
+  }
+}
+
+function sendChat() {
+  if (chatStreaming) return;
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if (!text) return;
+
+  const key = document.getElementById('chatSession').value;
+  const container = document.getElementById('chatMessages');
+
+  // Add user message
+  const userDiv = document.createElement('div');
+  userDiv.className = 'chat-msg user';
+  userDiv.textContent = text;
+  container.appendChild(userDiv);
+  input.value = '';
+  input.style.height = 'auto';
+
+  // Add assistant placeholder
+  const assistantDiv = document.createElement('div');
+  assistantDiv.className = 'chat-msg assistant';
+  assistantDiv.textContent = '...';
+  container.appendChild(assistantDiv);
+  container.scrollTop = container.scrollHeight;
+
+  // Stream response via /v1/chat/completions SSE
+  chatStreaming = true;
+  document.getElementById('abortBtn').style.display = '';
+  const abortController = new AbortController();
+  chatAbort = abortController;
+
+  const body = {
+    model: wsData.model || 'default',
+    messages: [{ role: 'user', content: text }],
+    stream: true
+  };
+  if (key) body.session_key = key;
+
+  fetch(basePath + '/v1/chat/completions', {
+    method: 'POST',
+    headers: { ...authHeaders, 'Accept': 'text/event-stream' },
+    body: JSON.stringify(body),
+    signal: abortController.signal
+  }).then(response => {
+    if (!response.ok) {
+      response.text().then(t => { assistantDiv.textContent = 'Error: ' + t; });
+      chatDone();
+      return;
+    }
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullText = '';
+    let currentEvent = '';  // tracks SSE event type
+    const toolCards = {};   // tool name → DOM element
+
+    function makeToolCard(name, args) {
+      const card = document.createElement('div');
+      card.className = 'tool-card';
+      card.innerHTML = `<div class="tool-card-header" onclick="this.parentElement.classList.toggle('expanded')">
+        <span class="tool-icon">🔧</span>
+        <span class="tool-name">${escapeHtml(name)}</span>
+        <span class="tool-status running"><span class="tool-spinner"></span> running</span>
+      </div><div class="tool-card-body">${escapeHtml(args || '')}</div>`;
+      return card;
+    }
+
+    function read() {
+      reader.read().then(({done, value}) => {
+        if (done) { chatDone(); return; }
+        buffer += decoder.decode(value, {stream: true});
+        const lines = buffer.split('\n');
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (line.startsWith('event: ')) {
+            currentEvent = line.slice(7).trim();
+            continue;
+          }
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6);
+          if (data === '[DONE]') { chatDone(); return; }
+          try {
+            const parsed = JSON.parse(data);
+            if (currentEvent === 'tool_start') {
+              const card = makeToolCard(parsed.tool, parsed.arguments);
+              toolCards[parsed.tool] = card;
+              container.insertBefore(card, assistantDiv);
+              container.scrollTop = container.scrollHeight;
+            } else if (currentEvent === 'tool_done') {
+              const card = toolCards[parsed.tool];
+              if (card) {
+                const st = card.querySelector('.tool-status');
+                if (parsed.error) {
+                  st.className = 'tool-status error';
+                  st.textContent = '✗ error';
+                  card.querySelector('.tool-card-body').textContent = parsed.error;
+                } else {
+                  st.className = 'tool-status done';
+                  st.textContent = '✓ done';
+                  // Show truncated result
+                  const r = parsed.result || '';
+                  card.querySelector('.tool-card-body').textContent = r.length > 500 ? r.slice(0, 500) + '…' : r;
+                }
+              }
+            } else {
+              const delta = parsed.choices?.[0]?.delta;
+              if (delta?.content) {
+                fullText += delta.content;
+                assistantDiv.textContent = fullText;
+                container.scrollTop = container.scrollHeight;
+              }
+            }
+          } catch {}
+          currentEvent = '';  // reset after processing data line
+        }
+        read();
+      }).catch(err => {
+        if (err.name !== 'AbortError') assistantDiv.textContent = fullText || 'Error: ' + err.message;
+        chatDone();
+      });
+    }
+    read();
+  }).catch(err => {
+    if (err.name !== 'AbortError') assistantDiv.textContent = 'Error: ' + err.message;
+    chatDone();
+  });
+}
+
+function abortChat() {
+  if (chatAbort) { chatAbort.abort(); chatAbort = null; }
+}
+
+function chatDone() {
+  chatStreaming = false;
+  chatAbort = null;
+  document.getElementById('abortBtn').style.display = 'none';
+  if (ws) ws.send('refresh');
+}
+
+// --- Cron ---
+function loadCron() {
+  fetch(basePath + '/api/cron', { headers: authHeaders })
+    .then(r => {
+      if (!r.ok) throw new Error(r.status === 401 ? 'Unauthorized — add ?token=YOUR_TOKEN to the URL' : 'HTTP ' + r.status);
+      return r.json();
+    })
+    .then(data => {
+      const list = document.getElementById('cronList');
+      const jobs = data.jobs || data || [];
+      if (!Array.isArray(jobs) || jobs.length === 0) {
+        list.innerHTML = '<span class="empty">No cron jobs configured</span>';
+        return;
+      }
+      let html = '<table><tr><th>Name</th><th>Schedule</th><th>Status</th><th>Last Run</th><th>Actions</th></tr>';
+      jobs.forEach(j => {
+        const name = esc(j.displayName || j.name || j.id || '—');
+        const sched = esc(j.displaySchedule || formatSchedule(j.schedule) || j.spec || '—');
+        const enabled = j.enabled !== false;
+        const statusBadge = enabled ? '<span class="badge badge-green">enabled</span>' : '<span class="badge badge-yellow">disabled</span>';
+        const lastRunMs = j.state?.lastRunAtMs || j.lastRun;
+        const lastStatus = j.state?.lastRunStatus;
+        const lastRunStr = lastRunMs
+          ? new Date(lastRunMs).toLocaleString() + (lastStatus ? ' (' + esc(lastStatus) + ')' : '')
+          : '—';
+        const id = esc(j.id || '');
+        html += '<tr><td>' + name + '</td><td><code>' + sched + '</code></td><td>' + statusBadge + '</td><td>' + lastRunStr + '</td><td>' +
+          '<button class="btn btn-sm" onclick="runCron(\'' + id + '\')">Run</button> ' +
+          (enabled
+            ? '<button class="btn btn-sm" onclick="toggleCron(\'' + id + '\', false)">Disable</button>'
+            : '<button class="btn btn-sm" onclick="toggleCron(\'' + id + '\', true)">Enable</button>') +
+          ' <button class="btn btn-sm btn-danger" onclick="removeCron(\'' + id + '\')">Remove</button>' +
+          '</td></tr>';
+      });
+      html += '</table>';
+      list.innerHTML = html;
+      populateCronHistorySelect(jobs);
+    })
+    .catch(err => {
+      document.getElementById('cronList').innerHTML = '<span class="empty">' + esc(err.message || 'Failed to load cron jobs') + '</span>';
+    });
+}
+
+function addCron() {
+  const spec = document.getElementById('cronSpec').value.trim();
+  const instruction = document.getElementById('cronInstruction').value.trim();
+  if (!spec || !instruction) return;
+  fetch(basePath + '/api/cron', {
+    method: 'POST', headers: authHeaders,
+    body: JSON.stringify({ spec, instruction })
+  }).then(r => r.json()).then(() => {
+    document.getElementById('cronSpec').value = '';
+    document.getElementById('cronInstruction').value = '';
+    loadCron();
+  });
+}
+
+function runCron(id) {
+  fetch(basePath + '/api/cron/' + encodeURIComponent(id) + '/run', { method: 'POST', headers: authHeaders })
+    .then(() => loadCron());
+}
+
+function toggleCron(id, enable) {
+  const endpoint = enable ? '/enable' : '/disable';
+  fetch(basePath + '/api/cron/' + encodeURIComponent(id) + endpoint, { method: 'POST', headers: authHeaders })
+    .then(() => loadCron());
+}
+
+function removeCron(id) {
+  if (!confirm('Remove cron job ' + id + '?')) return;
+  fetch(basePath + '/api/cron/' + encodeURIComponent(id), { method: 'DELETE', headers: authHeaders })
+    .then(() => loadCron());
+}
+
+// --- Skills ---
+function toggleSkill(name, enable) {
+  const endpoint = enable ? '/enable' : '/disable';
+  fetch(basePath + '/api/skills/' + encodeURIComponent(name) + endpoint, { method: 'POST', headers: authHeaders })
+    .then(() => { if (ws) ws.send('refresh'); });
+}
+
+// --- Tasks ---
+function loadTasks() {
+  fetch(basePath + '/api/tasks', { headers: authHeaders })
+    .then(r => r.json())
+    .then(data => {
+      const list = document.getElementById('taskQueueList');
+      const tasks = data.tasks || [];
+      if (!Array.isArray(tasks) || tasks.length === 0) {
+        list.innerHTML = '<span class="empty">No tasks</span>';
+        return;
+      }
+      let html = '<table><tr><th>ID</th><th>Agent</th><th>Status</th><th>Created</th><th></th></tr>';
+      tasks.forEach(t => {
+        const statusBadge = t.status === 'running' ? '<span class="badge badge-green">running</span>'
+          : t.status === 'pending' ? '<span class="badge badge-yellow">pending</span>'
+          : '<span class="badge badge-blue">' + esc(t.status || '—') + '</span>';
+        const created = t.createdAtMs ? new Date(t.createdAtMs).toLocaleTimeString() : '—';
+        const cancelBtn = (t.status === 'pending' || t.status === 'running')
+          ? '<button class="btn btn-sm btn-danger" onclick="cancelTask(\'' + esc(t.id) + '\')">Cancel</button>' : '';
+        html += '<tr><td><code>' + esc((t.id || '').slice(0, 8)) + '</code></td><td>' + esc(t.agentId || '—') + '</td><td>' + statusBadge + '</td><td>' + created + '</td><td>' + cancelBtn + '</td></tr>';
+      });
+      html += '</table>';
+      list.innerHTML = html;
+    })
+    .catch(() => {
+      document.getElementById('taskQueueList').innerHTML = '<span class="empty">Failed to load tasks</span>';
+    });
+}
+
+function cancelTask(id) {
+  if (!confirm('Cancel task ' + id + '?')) return;
+  fetch(basePath + '/api/tasks/' + encodeURIComponent(id) + '/cancel', { method: 'POST', headers: authHeaders })
+    .then(() => { loadTasks(); if (ws) ws.send('refresh'); });
+}
+
+// --- Config ---
+function loadConfig() {
+  fetch(basePath + '/api/config', { headers: authHeaders })
+    .then(r => r.json())
+    .then(cfg => {
+      document.getElementById('configPre').textContent = JSON.stringify(cfg, null, 2);
+    })
+    .catch(() => {
+      document.getElementById('configPre').textContent = 'Failed to load config';
+    });
+}
+
+// --- Logs ---
+function startLogStream() {
+  if (logEventSource) return;
+  const url = basePath + '/api/log' + (token ? '?token=' + encodeURIComponent(token) : '');
+  logEventSource = new EventSource(url);
+  logEventSource.onmessage = (e) => {
+    if (logPaused) return;
+    addLogLine(e.data);
+  };
+  logEventSource.onerror = () => {
+    stopLogStream();
+    setTimeout(() => {
+      const tab = document.getElementById('tab-logs');
+      if (tab && tab.classList.contains('active')) startLogStream();
+    }, 3000);
+  };
+}
+
+function stopLogStream() {
+  if (logEventSource) { logEventSource.close(); logEventSource = null; }
+}
+
+function addLogLine(raw) {
+  let html;
+  try {
+    const j = JSON.parse(raw);
+    const ts = j.ts || '';
+    const level = (j.level || 'info').toLowerCase();
+    const msg = j.msg || raw;
+    const caller = j.caller || '';
+    const levelClass = 'log-' + (level === 'dpanic' || level === 'fatal' ? 'error' : level);
+    html = '<span class="log-ts">' + esc(ts) + '</span> <span class="' + levelClass + '">' + esc(level.toUpperCase()) + '</span> ' +
+      esc(msg) + (caller ? ' <span class="log-ts">' + esc(caller) + '</span>' : '');
+  } catch {
+    html = esc(raw);
+  }
+
+  const filter = document.getElementById('logFilter').value.toLowerCase();
+  const div = document.createElement('div');
+  div.className = 'log-line';
+  div.innerHTML = html;
+  div.dataset.text = raw.toLowerCase();
+
+  if (filter && !div.dataset.text.includes(filter)) div.style.display = 'none';
+
+  logLines.push(div);
+  const container = document.getElementById('logContainer');
+  container.appendChild(div);
+
+  while (logLines.length > LOG_MAX) {
+    const old = logLines.shift();
+    old.remove();
+  }
+
+  document.getElementById('logCount').textContent = logLines.length + ' lines';
+  const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 60;
+  if (atBottom) container.scrollTop = container.scrollHeight;
+}
+
+function filterLogs() {
+  const filter = document.getElementById('logFilter').value.toLowerCase();
+  logLines.forEach(div => {
+    div.style.display = (!filter || div.dataset.text.includes(filter)) ? '' : 'none';
+  });
+}
+
+function toggleLogPause() {
+  logPaused = !logPaused;
+  document.getElementById('logPauseBtn').textContent = logPaused ? 'Resume' : 'Pause';
+}
+
+function clearLogs() {
+  logLines.forEach(d => d.remove());
+  logLines = [];
+  document.getElementById('logCount').textContent = '0 lines';
+}
+
+// --- Usage ---
+function loadUsage() {
+  fetch(basePath + '/api/usage', { headers: authHeaders })
+    .then(r => r.json())
+    .then(data => {
+      // Aggregate card on dashboard
+      const agg = data.aggregate;
+      if (agg) {
+        document.getElementById('usageSummaryCard').style.display = '';
+        document.getElementById('usageInTotal').textContent = fmtNum(agg.input || 0);
+        document.getElementById('usageOutTotal').textContent = fmtNum(agg.output || 0);
+        document.getElementById('usageTokTotal').textContent = fmtNum(agg.total || 0);
+      }
+
+      // Usage tab — aggregate
+      if (agg) {
+        document.getElementById('uaInput').textContent = fmtNum(agg.input || 0);
+        document.getElementById('uaOutput').textContent = fmtNum(agg.output || 0);
+        document.getElementById('uaTotal').textContent = fmtNum(agg.total || 0);
+        document.getElementById('uaCacheRead').textContent = fmtNum(agg.cacheRead || 0);
+        document.getElementById('uaCacheWrite').textContent = fmtNum(agg.cacheWrite || 0);
+      }
+
+      // Usage tab — per session
+      const list = document.getElementById('usageSessionList');
+      const sessions = data.sessions;
+      if (!sessions || Object.keys(sessions).length === 0) {
+        list.innerHTML = '<span class="empty">No usage data yet</span>';
+        return;
+      }
+      let html = '<table><tr><th>Session</th><th>Input</th><th>Output</th><th>Total</th><th>Calls</th></tr>';
+      for (const [key, u] of Object.entries(sessions)) {
+        html += '<tr><td>' + esc(key) + '</td><td>' + fmtNum(u.usage?.input || 0) + '</td><td>' +
+          fmtNum(u.usage?.output || 0) + '</td><td>' + fmtNum(u.usage?.total || 0) + '</td><td>' +
+          (u.calls || 0) + '</td></tr>';
+      }
+      html += '</table>';
+      list.innerHTML = html;
+    })
+    .catch(() => {
+      document.getElementById('usageSessionList').innerHTML = '<span class="empty">Failed to load usage</span>';
+    });
+}
+
+function loadCronHistory() {
+  const jobSelect = document.getElementById('cronHistoryJob');
+  const jobID = jobSelect.value;
+  if (!jobID) return;
+  const list = document.getElementById('cronHistoryList');
+  list.innerHTML = '<span class="empty">Loading...</span>';
+  fetch(basePath + '/api/cron/' + encodeURIComponent(jobID) + '/history?limit=20&sort=desc', { headers: authHeaders })
+    .then(r => r.json())
+    .then(data => {
+      const entries = data.entries || [];
+      if (entries.length === 0) {
+        list.innerHTML = '<span class="empty">No run history for this job</span>';
+        return;
+      }
+      let html = '<table><tr><th>Time</th><th>Status</th><th>Duration</th><th>Delivery</th><th>Summary</th></tr>';
+      entries.forEach(e => {
+        const t = e.startedAt ? new Date(e.startedAt).toLocaleString() : '—';
+        const dur = e.durationMs ? (e.durationMs / 1000).toFixed(1) + 's' : '—';
+        const statusBadge = e.status === 'success'
+          ? '<span class="badge badge-green">success</span>'
+          : e.status === 'error'
+            ? '<span class="badge badge-red">error</span>'
+            : '<span class="badge badge-yellow">' + esc(e.status || '—') + '</span>';
+        const delivery = e.deliveryStatus || '—';
+        const summary = (e.summary || '').slice(0, 80);
+        html += '<tr><td>' + esc(t) + '</td><td>' + statusBadge + '</td><td>' + esc(dur) + '</td><td>' + esc(delivery) + '</td><td>' + esc(summary) + '</td></tr>';
+      });
+      html += '</table>';
+      if (data.hasMore) html += '<div class="mt-8" style="color:#8b949e;font-size:0.8em">Showing 20 of ' + data.total + ' entries</div>';
+      list.innerHTML = html;
+    })
+    .catch(() => {
+      list.innerHTML = '<span class="empty">Failed to load history</span>';
+    });
+}
+
+function populateCronHistorySelect(jobs) {
+  const select = document.getElementById('cronHistoryJob');
+  const prev = select.value;
+  select.innerHTML = jobs.map(j => '<option value="' + esc(j.id || '') + '">' + esc(j.displayName || j.name || j.id || '—') + '</option>').join('');
+  if (prev && jobs.some(j => j.id === prev)) select.value = prev;
+  if (jobs.length > 0) {
+    document.getElementById('cronHistoryCard').style.display = '';
+  }
+}
+
+function fmtNum(n) {
+  if (n === 0) return '0';
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + 'K';
+  return String(n);
+}
+
+// --- Helpers ---
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function formatSchedule(s) {
+  if (!s) return '—';
+  if (typeof s === 'string') return s;
+  if (s.kind === 'every' && s.everyMs) {
+    const ms = s.everyMs;
+    if (ms >= 86400000 && ms % 86400000 === 0) return 'every ' + (ms / 86400000) + 'd';
+    if (ms >= 3600000 && ms % 3600000 === 0) return 'every ' + (ms / 3600000) + 'h';
+    if (ms >= 60000 && ms % 60000 === 0) return 'every ' + (ms / 60000) + 'm';
+    return 'every ' + ms + 'ms';
+  }
+  if (s.kind === 'cron' && s.expr) return s.expr;
+  if (s.kind === 'once' && s.atMs) return 'once at ' + new Date(s.atMs).toLocaleString();
+  return JSON.stringify(s);
+}
+
+function promptToken() {
+  const val = prompt('Enter gateway auth token:', token);
+  if (val === null) return;
+  token = val.trim();
+  localStorage.setItem('gc_token', token);
+  authHeaders = token ? {'Content-Type':'application/json','Authorization':'Bearer '+token} : {'Content-Type':'application/json'};
+  updateTokenBtn();
+}
+
+function updateTokenBtn() {
+  const btn = document.getElementById('tokenBtn');
+  btn.textContent = token ? 'token: ****' + token.slice(-4) : 'set token';
+  btn.style.color = token ? '#3fb950' : '#d29922';
+}
+
+// --- Init ---
+updateTokenBtn();
+connectWS();
+loadConfig();
+loadCron();
+loadUsage();
+
+// Register service worker for PWA installability.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register(basePath + '/sw.js').catch(function(){});
+}
+</script>
+</body>
+</html>
