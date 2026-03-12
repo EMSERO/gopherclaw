@@ -55,6 +55,11 @@ nfpms:
     contents:
       - src: packaging/gopherclaw.plist
         dst: /usr/share/doc/gopherclaw/gopherclaw.plist
+      - src: packaging/gopherclaw.service
+        dst: /usr/lib/systemd/user/gopherclaw.service
+    scripts:
+      postinstall: packaging/postinstall.sh
+      preremove: packaging/preremove.sh
 
 checksum:
   name_template: checksums.txt
