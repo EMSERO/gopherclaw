@@ -17,7 +17,7 @@ import (
 // Ctx holds all dependencies needed to execute commands.
 type Ctx struct {
 	SessionKey  string
-	Agent       *agent.Agent
+	Agent       agent.PrimaryAgent
 	Sessions    *session.Manager
 	Config      *config.Root
 	CronManager *cron.Manager          // optional; enables /cron commands

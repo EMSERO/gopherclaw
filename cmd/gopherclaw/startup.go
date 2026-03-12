@@ -69,7 +69,7 @@ func fatalf(format string, args ...any) {
 
 // makeCronRunner returns a cron.RunFunc that drives agent.Chat/ChatLight for
 // scheduled jobs.  Extracted to avoid a 30-line closure body inside main().
-func makeCronRunner(logger *zap.SugaredLogger, ag *agent.Agent, cfg *config.Root) cron.RunFunc {
+func makeCronRunner(logger *zap.SugaredLogger, ag agent.PrimaryAgent, cfg *config.Root) cron.RunFunc {
 	return func(cronCtx context.Context, job *cron.Job) cron.RunResult {
 		sessionKey := job.EffectiveSessionKey()
 		instruction := job.EffectiveInstruction()
@@ -121,7 +121,7 @@ type channelBots struct {
 func initChannelBots(
 	logger *zap.SugaredLogger,
 	cfg *config.Root,
-	ag *agent.Agent,
+	ag agent.PrimaryAgent,
 	sessionMgr *session.Manager,
 	cronMgr *cron.Manager,
 	confirmMgr *tools.ConfirmManager,
@@ -176,7 +176,7 @@ type reloadDeps struct {
 	envMap       map[string]string
 	prevChannels config.Channels
 	sessionMgr   *session.Manager
-	ag           *agent.Agent
+	ag           *agent.Agent // concrete Agent for UpdateConfig; nil when engine=claude-cli
 	bots         channelBots
 }
 
@@ -228,7 +228,9 @@ func (d *reloadDeps) onConfigReloaded(egCtx context.Context, newCfg *config.Root
 	}
 	d.prevChannels = newCfg.Channels
 
-	// Update agent config and model routing.
-	d.ag.UpdateConfig(newCfg)
+	// Update agent config and model routing (router engine only).
+	if d.ag != nil {
+		d.ag.UpdateConfig(newCfg)
+	}
 	d.logger.Infof("hot-reload: updated config (model=%s)", newCfg.Agents.Defaults.Model.Primary)
 }

@@ -271,6 +271,9 @@ func (a *Agent) ModelHealth() []models.ModelHealthStatus {
 	return a.router.ModelHealth()
 }
 
+// GetUsage returns the agent's usage tracker.
+func (a *Agent) GetUsage() *UsageTracker { return a.Usage }
+
 // UpdateConfig swaps the agent's config and updates the router's model list.
 // Called by the hot-reload callback when the config file changes.
 func (a *Agent) UpdateConfig(newCfg *config.Root) {

@@ -29,7 +29,7 @@ type Bot struct {
 	cfg      config.DiscordConfig
 	msgCfg   config.Messages
 	fullCfg  *config.Root
-	ag       *agent.Agent
+	ag       agent.PrimaryAgent
 	sessions *session.Manager
 	cronMgr  *cron.Manager
 	taskMgr  *taskqueue.Manager
@@ -67,7 +67,7 @@ type queuedMessage struct {
 }
 
 // New creates a Discord bot (does not connect yet).
-func New(logger *zap.SugaredLogger, cfg config.DiscordConfig, msgCfg config.Messages, fullCfg *config.Root, ag *agent.Agent, sm *session.Manager, cronMgr *cron.Manager) (*Bot, error) {
+func New(logger *zap.SugaredLogger, cfg config.DiscordConfig, msgCfg config.Messages, fullCfg *config.Root, ag agent.PrimaryAgent, sm *session.Manager, cronMgr *cron.Manager) (*Bot, error) {
 	dg, err := discordgo.New("Bot " + cfg.BotToken)
 	if err != nil {
 		return nil, fmt.Errorf("create discord session: %w", err)

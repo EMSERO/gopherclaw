@@ -94,6 +94,8 @@ type Agents struct {
 }
 
 type AgentDefaults struct {
+	Engine            string                     `json:"engine"`    // "router" (default) or "claude-cli"
+	CLIEngine         CLIEngineConfig            `json:"cliEngine"` // config when engine="claude-cli"
 	Model             ModelConfig                `json:"model"`
 	Models            map[string]ModelAliasEntry `json:"models"` // model-id → {alias}; used for reverse alias lookup
 	Subagents         SubagentsConfig            `json:"subagents"`
@@ -207,6 +209,16 @@ func (hb HeartbeatConfig) HeartbeatAckMaxChars() int {
 type ModelConfig struct {
 	Primary   string   `json:"primary"`
 	Fallbacks []string `json:"fallbacks"`
+}
+
+// CLIEngineConfig holds settings for the "claude-cli" engine mode.
+type CLIEngineConfig struct {
+	Command      string   `json:"command"`      // path/name of claude binary (default "claude")
+	Model        string   `json:"model"`        // model to request (e.g. "sonnet", "opus")
+	MCPConfig    string   `json:"mcpConfig"`    // path to MCP config JSON for GopherClaw tools
+	SystemPrompt string   `json:"systemPrompt"` // custom system prompt override
+	ExtraArgs    []string `json:"extraArgs"`    // additional CLI flags
+	IdleTTLSec   int      `json:"idleTTLSec"`   // idle subprocess reap timeout in seconds (default 1800)
 }
 
 type ContextPruning struct {

@@ -34,7 +34,7 @@ type Bot struct {
 	cfg      config.TelegramConfig
 	msgCfg   config.Messages
 	fullCfg  *config.Root
-	agent    *agent.Agent
+	agent    agent.PrimaryAgent
 	sessions *session.Manager
 	cronMgr  *cron.Manager
 	taskMgr  *taskqueue.Manager
@@ -101,7 +101,7 @@ type queuedMessage struct {
 }
 
 // New creates and starts a Telegram bot.
-func New(logger *zap.SugaredLogger, cfg config.TelegramConfig, msgCfg config.Messages, fullCfg *config.Root, ag *agent.Agent, sm *session.Manager, cronMgr *cron.Manager) (*Bot, error) {
+func New(logger *zap.SugaredLogger, cfg config.TelegramConfig, msgCfg config.Messages, fullCfg *config.Root, ag agent.PrimaryAgent, sm *session.Manager, cronMgr *cron.Manager) (*Bot, error) {
 	pref := tele.Settings{
 		Token:  cfg.BotToken,
 		Poller: &tele.LongPoller{Timeout: 30 * time.Second},
