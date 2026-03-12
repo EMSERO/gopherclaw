@@ -202,7 +202,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			"version":   s.version,
 			"backupVer": backupVer,
 			"latestVer": latestVer,
-			"model":         s.cfg.Agents.Defaults.Model.Primary,
+			"model":         func() string { if s.cfg.Agents.Defaults.Engine == "claude-cli" { return "claude-cli" }; return s.cfg.Agents.Defaults.Model.Primary }(),
 			"fallbacks":     s.cfg.Agents.Defaults.Model.Fallbacks,
 			"subagentModel": s.cfg.Agents.Defaults.Subagents.Model,
 			"agents":        s.cfg.Agents.List,

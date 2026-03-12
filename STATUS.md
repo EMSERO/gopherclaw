@@ -17,7 +17,7 @@ Last updated: 2026-03-08 (Eidetic memory integration, notify_user tool, search-b
 - **Env var injection** — `cfg.Env` map entries are set via `os.Setenv()` at startup before any handlers run
 - **Config hot-reload** — fsnotify watches `config.json`; on change, debounced reload (500ms default) updates session pruning policy and env vars; **config snapshots** prevent data races — each message handler snapshots `cfg`/`msgCfg` under the lock before processing
 - **`errgroup` lifecycle** — all services (gateway, channel bots, cron, config watcher) launch via `errgroup.WithContext`; if any service fails (e.g. gateway can't bind port), the error propagates and the process shuts down cleanly instead of running headless
-- **Systemd service file** — `~/.config/systemd/user/gopherclaw-gateway.service` points at `~/.local/bin/gopherclaw`; PATH includes `%h/.local/bin` for CLI subagent resolution
+- **Systemd service file** — deb/rpm packages install `/usr/lib/systemd/user/gopherclaw.service` (user-level unit); manage with `systemctl --user`
 - **`gopherclaw-restart` script** — `~/.local/bin/gopherclaw-restart` stops the service, clears sessions, cancels Telegram long-poll, then restarts
 
 ### HTTP Gateway (port 18789)
@@ -309,6 +309,6 @@ Gaps resolved in initial audit:
 - [x] Verify tools work (exec tools confirmed via webhook stress tests and Telegram)
 - [x] Stop OpenClaw: `systemctl --user stop openclaw-gateway`
 - [x] Clear sessions: `rm ~/.openclaw/agents/main/sessions/*.jsonl`
-- [x] Start GopherClaw: `systemctl --user start gopherclaw-gateway`
+- [x] Start GopherClaw: `systemctl --user start gopherclaw`
 - [x] Test Telegram on port 18789 — verified, bot running on 127.0.0.1:18789
 - [x] Test HTTP gateway (`curl .../health`) — `{"status":"ok","version":"<build-version>"}`

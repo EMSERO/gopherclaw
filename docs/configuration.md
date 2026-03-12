@@ -104,6 +104,20 @@ Supported provider prefixes in model IDs: `github-copilot/`, `anthropic/`, `open
 | `maxIterations` | int | `50` | Max tool-call rounds per agent turn |
 | `loopDetectionN` | int | `3` | Consecutive identical tool calls before breaking the loop |
 | `softTrimRatio` | float | `0.0` | Fraction of model max tokens to trigger context soft trim (0 = disabled) |
+| `engine` | string | `"router"` | Agent engine: `"router"` (default multi-provider) or `"claude-cli"` (Claude Code subprocess) |
+
+### `agents.defaults.cliEngine`
+
+Configuration for the `claude-cli` engine mode (only used when `engine: "claude-cli"`).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `command` | string | `"claude"` | CLI command to invoke |
+| `model` | string | `""` | Model to pass to the CLI |
+| `mcpConfig` | string | `""` | Path to MCP config file for the CLI |
+| `systemPrompt` | string | `""` | Additional system prompt text |
+| `extraArgs` | []string | `[]` | Extra CLI arguments |
+| `idleTTLSec` | int | `0` | Idle timeout in seconds before killing subprocess (0 = no timeout) |
 
 ### `agents.defaults.contextPruning`
 

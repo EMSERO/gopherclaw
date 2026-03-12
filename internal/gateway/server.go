@@ -280,6 +280,8 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			provided = r.URL.Query().Get("token")
 		}
 		if subtle.ConstantTimeCompare([]byte(provided), []byte(token)) != 1 {
+			ip := extractIP(r)
+			s.logger.Warnf("auth: rejected 401 from ip=%s method=%s path=%s", ip, r.Method, r.URL.Path)
 			s.writeJSON(w, http.StatusUnauthorized, ErrorResponse{Error: "unauthorized"})
 			return
 		}

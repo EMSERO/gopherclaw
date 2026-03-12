@@ -148,21 +148,23 @@ func main() {
 	updateCh := updater.StartupCheck(context.Background(), version)
 	var pendingUpdateVer atomic.Value // stores string
 	go func() {
-		if newVer, ok := <-updateCh; ok && newVer != "" {
-			pendingUpdateVer.Store(newVer)
-			if cfg.Update.AutoUpdate {
-				logger.Infof("auto-update: new version %s available, updating...", newVer)
-				updateCtx, updateCancel := context.WithTimeout(context.Background(), 120*time.Second)
-				defer updateCancel()
-				installed, err := updater.Update(updateCtx, version)
-				if err != nil {
-					logger.Errorf("auto-update failed: %v", err)
-				} else {
-					logger.Infof("auto-update: updated to %s — restart the service to use the new version", installed)
-				}
+		newVer, ok := <-updateCh
+		if !ok || newVer == "" {
+			return
+		}
+		pendingUpdateVer.Store(newVer)
+		if cfg.Update.AutoUpdate {
+			logger.Infof("auto-update: new version %s available, updating...", newVer)
+			updateCtx, updateCancel := context.WithTimeout(context.Background(), 120*time.Second)
+			defer updateCancel()
+			installed, err := updater.Update(updateCtx, version)
+			if err != nil {
+				logger.Errorf("auto-update failed: %v", err)
 			} else {
-				logger.Infof("update available: %s → %s (run 'gopherclaw update')", version, newVer)
+				logger.Infof("auto-update: updated to %s — restart the service to use the new version", installed)
 			}
+		} else {
+			logger.Infof("update available: %s → %s (run 'gopherclaw update')", version, newVer)
 		}
 	}()
 
@@ -368,12 +370,17 @@ func main() {
 	var primaryAg agent.PrimaryAgent = ag
 	if cfg.Agents.Defaults.Engine == "claude-cli" {
 		cliCfg := cfg.Agents.Defaults.CLIEngine
+
+		// Build system prompt with skills, workspace docs, and identity so the
+		// CLI subprocess has the same context as the standard router agent.
+		sysPrompt := agent.BuildCLISystemPrompt(agentDef, skillList, wsMDs, cliCfg.SystemPrompt)
+
 		ttl := time.Duration(cliCfg.IdleTTLSec) * time.Second
 		sca, err := agent.NewStreamingCLIAgent(logger.Named("claude-cli"), agent.StreamingCLIConfig{
 			Command:      cliCfg.Command,
 			Model:        cliCfg.Model,
 			MCPConfig:    cliCfg.MCPConfig,
-			SystemPrompt: cliCfg.SystemPrompt,
+			SystemPrompt: sysPrompt,
 			ExtraArgs:    cliCfg.ExtraArgs,
 			IdleTTL:      ttl,
 		})
@@ -492,7 +499,11 @@ func main() {
 	// Deliver update notification to channel bots after startup (REQ-031).
 	// Uses a short delay to let bots connect first.
 	go func() {
-		time.Sleep(10 * time.Second)
+		select {
+		case <-time.After(10 * time.Second):
+		case <-ctx.Done():
+			return
+		}
 		if ver, ok := pendingUpdateVer.Load().(string); ok && ver != "" {
 			msg := fmt.Sprintf("GopherClaw update available: %s → %s\nRun `gopherclaw update` to upgrade.", version, ver)
 			if tgBot != nil {

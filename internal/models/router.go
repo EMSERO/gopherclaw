@@ -80,12 +80,14 @@ func (r *Router) Chat(ctx context.Context, req openai.ChatCompletionRequest) (op
 	models := r.modelList(req.Model)
 	maxRetry := r.maxRetries()
 	var lastErr error
+	allCooldown := true
 	for i, fullModel := range models {
 		// Skip models in cooldown.
 		if r.Cooldowns != nil && !r.Cooldowns.IsAvailable(fullModel) {
 			r.logger.Warnf("model in cooldown, skipping: model=%s remaining=%v", fullModel, r.Cooldowns.CooldownRemaining(fullModel))
 			continue
 		}
+		allCooldown = false
 		p, modelID, err := ProviderFor(r.providers, fullModel)
 		if err != nil {
 			r.logger.Warnf("model attempt failed: model=%s attempt=%d/%d err=%v", fullModel, i+1, len(models), err)
@@ -126,9 +128,13 @@ func (r *Router) Chat(ctx context.Context, req openai.ChatCompletionRequest) (op
 			}
 			r.logger.Warnf("model transient error, will retry: model=%s attempt=%d/%d retry=%d/%d err=%v", fullModel, i+1, len(models), retry, maxRetry, err)
 		}
-		if r.Cooldowns != nil {
+		// Only cooldown on transient errors — permanent errors (401, 403) won't recover with time.
+		if r.Cooldowns != nil && isRetryable(lastErr) {
 			r.Cooldowns.RecordFailure(fullModel)
 		}
+	}
+	if allCooldown && lastErr == nil {
+		return openai.ChatCompletionResponse{}, fmt.Errorf("all models in cooldown, none available")
 	}
 	return openai.ChatCompletionResponse{}, fmt.Errorf("all models failed: %w", lastErr)
 }
@@ -144,12 +150,14 @@ func (r *Router) ChatStream(ctx context.Context, req openai.ChatCompletionReques
 	models := r.modelList(req.Model)
 	maxRetry := r.maxRetries()
 	var lastErr error
+	allCooldownStream := true
 	for i, fullModel := range models {
 		// Skip models in cooldown.
 		if r.Cooldowns != nil && !r.Cooldowns.IsAvailable(fullModel) {
 			r.logger.Warnf("model in cooldown, skipping stream: model=%s remaining=%v", fullModel, r.Cooldowns.CooldownRemaining(fullModel))
 			continue
 		}
+		allCooldownStream = false
 		p, modelID, err := ProviderFor(r.providers, fullModel)
 		if err != nil {
 			r.logger.Warnf("model stream attempt failed: model=%s attempt=%d/%d err=%v", fullModel, i+1, len(models), err)
@@ -234,9 +242,12 @@ func (r *Router) ChatStream(ctx context.Context, req openai.ChatCompletionReques
 			// closes it, preventing the context from leaking.
 			return &cancelOnCloseStream{Stream: stream, cancel: streamCancel}, nil
 		}
-		if r.Cooldowns != nil {
+		if r.Cooldowns != nil && isRetryable(lastErr) {
 			r.Cooldowns.RecordFailure(fullModel)
 		}
+	}
+	if allCooldownStream && lastErr == nil {
+		return nil, fmt.Errorf("all models in cooldown, none available")
 	}
 	return nil, fmt.Errorf("all models failed: %w", lastErr)
 }

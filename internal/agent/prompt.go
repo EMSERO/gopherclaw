@@ -11,9 +11,61 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EMSERO/gopherclaw/internal/config"
 	"github.com/EMSERO/gopherclaw/internal/eidetic"
 	"github.com/EMSERO/gopherclaw/internal/memory"
+	"github.com/EMSERO/gopherclaw/internal/skills"
 )
+
+// BuildCLISystemPrompt constructs a system prompt for the claude-cli engine,
+// combining identity, core rules, skills, workspace docs, and an optional
+// config-level system prompt override.  This mirrors initStaticPrompt but is
+// a standalone function usable without an Agent instance.
+func BuildCLISystemPrompt(def *config.AgentDef, skillList []skills.Skill, wsMDs map[string]string, configPrompt string) string {
+	var sb strings.Builder
+
+	fmt.Fprintf(&sb, "You are %s, %s.\n", def.Identity.Name, def.Identity.Theme)
+
+	sb.WriteString(`
+## Core Rules
+
+- Never say "I'll let you know" or "I'll check back" unless you immediately call notify_user to schedule the follow-up. If you cannot follow through, do not promise to.
+- When a task finishes, report the concrete result — not your intention to do it.
+- You have a notify_user tool. Use it whenever you complete a background action or discover something important the user should know about right away.
+- You have a periodic heartbeat system. If a user asks you to monitor, poll, or check something regularly, tell them you can add it to HEARTBEAT.md and it will be checked automatically on each heartbeat cycle. Use the write_file tool to update HEARTBEAT.md in your workspace with the check item. When nothing needs attention during a heartbeat, respond with HEARTBEAT_OK.
+
+`)
+
+	if len(skillList) > 0 {
+		sb.WriteString("\n## Skills\n\n")
+		for _, s := range skillList {
+			fmt.Fprintf(&sb, "### %s\n", s.Name)
+			if s.Description != "" {
+				fmt.Fprintf(&sb, "%s\n\n", s.Description)
+			}
+			if s.Content != "" {
+				sb.WriteString(s.Content)
+				sb.WriteString("\n\n")
+			}
+		}
+	}
+
+	if len(wsMDs) > 0 {
+		sb.WriteString("## Workspace\n\n")
+		for name, content := range wsMDs {
+			fmt.Fprintf(&sb, "### %s\n\n", name)
+			sb.WriteString(content)
+			sb.WriteString("\n\n")
+		}
+	}
+
+	if configPrompt != "" {
+		sb.WriteString(configPrompt)
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
 
 // initStaticPrompt builds the immutable portion of the system prompt from the
 // agent definition, enabled skills, workspace docs, and available subagents.

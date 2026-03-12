@@ -117,7 +117,7 @@ func (m *Manager) GetHistory(key string) ([]Message, error) {
 	m.mu.Lock()
 	e, ok := m.sessions[key]
 	pruning := m.pruning
-	// Copy fields while holding the lock to avoid racing with AppendMessages.
+	// Copy all fields under lock to avoid racing with AppendMessages writes.
 	var sessionID string
 	var updatedAt int64
 	if ok {
@@ -439,6 +439,10 @@ func estimateTokens(msgs []Message) int {
 		for _, tc := range m.ToolCalls {
 			total += len(tc.Function.Arguments)/4 + len(tc.Function.Name)/4
 		}
+		// Image URLs (base64 data URIs) consume significant tokens.
+		for _, u := range m.ImageURLs {
+			total += len(u) / 4
+		}
 	}
 	return total
 }
@@ -568,6 +572,11 @@ func (m *Manager) rewriteJSONL(id string, msgs []Message) error {
 			return err
 		}
 	}
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		_ = os.Remove(tmpPath)
 		return err
@@ -633,13 +642,16 @@ func (m *Manager) flushSave() {
 	}
 }
 
-// FlushSave forces an immediate write of sessions.json if dirty. Call on shutdown.
+// FlushSave forces an immediate write of sessions.json. Call on shutdown.
+// Always writes regardless of dirty flag to ensure no data is lost.
 func (m *Manager) FlushSave() {
 	m.mu.Lock()
 	if m.saveTimer != nil {
 		m.saveTimer.Stop()
 		m.saveTimer = nil
 	}
+	// Force dirty so flushSave always writes on shutdown.
+	m.saveDirty = true
 	m.mu.Unlock()
 	m.flushSave()
 }
@@ -673,8 +685,9 @@ func (m *Manager) Reap(maxAge time.Duration) (int, error) {
 			continue
 		}
 		name := e.Name()
-		// Only process .jsonl and .tmp files
-		if !strings.HasSuffix(name, ".jsonl") && !strings.HasSuffix(name, ".tmp") {
+		// Process .jsonl, .tmp, .lock, and .stale files
+		if !strings.HasSuffix(name, ".jsonl") && !strings.HasSuffix(name, ".tmp") &&
+			!strings.HasSuffix(name, ".lock") && !strings.HasSuffix(name, ".stale") {
 			continue
 		}
 		// Derive session ID from filename
@@ -767,7 +780,7 @@ func (m *Manager) appendJSONL(id string, msgs []Message) error {
 			return err
 		}
 	}
-	return nil
+	return f.Sync()
 }
 
 func newID() string {

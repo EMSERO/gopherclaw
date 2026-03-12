@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -104,6 +105,7 @@ func rateLimitMiddleware(rps float64, burst int) func(http.Handler) http.Handler
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			ip := extractIP(r)
 			if !limiter.allow(ip) {
+				slog.Warn("ratelimit: rejected 429", "ip", ip, "method", r.Method, "path", r.URL.Path)
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusTooManyRequests)
 				_, _ = w.Write([]byte(`{"error":"rate limit exceeded"}`))
