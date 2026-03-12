@@ -123,6 +123,21 @@ func main() {
 		registerNotifyTool(s, gatewayURL, cfg.Gateway.Auth.Token, cfg.Gateway.ControlUI.BasePath)
 	}
 
+	// --- Web tools ---
+	logf("registering web tools")
+	registerWebTools(s)
+
+	// --- File tools ---
+	workspace := cfg.Agents.Defaults.Workspace
+	logf("registering file tools (workspace=%s)", workspace)
+	registerFileTools(s, workspace)
+
+	// --- Memory tools ---
+	if cfg.Agents.Defaults.Memory.Enabled {
+		logf("registering memory tools (workspace=%s)", workspace)
+		registerMemoryTools(s, workspace)
+	}
+
 	if err := server.ServeStdio(s); err != nil {
 		fmt.Fprintf(os.Stderr, "mcp server error: %v\n", err)
 		os.Exit(1)
@@ -189,6 +204,8 @@ func registerBrowserTools(s *server.MCPServer, pool *tools.BrowserPool) {
 		mcp.NewTool("browser_scrape",
 			mcp.WithDescription("Scrape elements matching a CSS selector, returning tag, text, and attributes"),
 			mcp.WithString("selector", mcp.Required(), mcp.Description("CSS selector to scrape")),
+			mcp.WithNumber("limit", mcp.Description("Maximum number of elements to return (optional)")),
+			mcp.WithNumber("textLimit", mcp.Description("Maximum text length per element (optional)")),
 		),
 		browserHandler(pool, sessionKey, "scrape"),
 	)
@@ -205,6 +222,7 @@ func registerBrowserTools(s *server.MCPServer, pool *tools.BrowserPool) {
 	s.AddTool(
 		mcp.NewTool("browser_links",
 			mcp.WithDescription("Get all links on the current page"),
+			mcp.WithNumber("limit", mcp.Description("Maximum number of links to return (optional)")),
 		),
 		browserHandler(pool, sessionKey, "links"),
 	)
@@ -377,4 +395,87 @@ func wrapGopherClawTool(t gcTool) server.ToolHandlerFunc {
 		}
 		return mcp.NewToolResultText(result), nil
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Web tools
+// ---------------------------------------------------------------------------
+
+func registerWebTools(s *server.MCPServer) {
+	s.AddTool(
+		mcp.NewTool("web_search",
+			mcp.WithDescription("Search the web using a query string"),
+			mcp.WithString("query", mcp.Required(), mcp.Description("Search query")),
+			mcp.WithNumber("limit", mcp.Description("Maximum number of results (default 5)")),
+		),
+		wrapGopherClawTool(&tools.WebSearchTool{}),
+	)
+
+	s.AddTool(
+		mcp.NewTool("web_fetch",
+			mcp.WithDescription("Fetch a web page and return its text content"),
+			mcp.WithString("url", mcp.Required(), mcp.Description("URL to fetch")),
+			mcp.WithNumber("maxLength", mcp.Description("Maximum response length in characters (optional)")),
+		),
+		wrapGopherClawTool(&tools.WebFetchTool{}),
+	)
+}
+
+// ---------------------------------------------------------------------------
+// File tools
+// ---------------------------------------------------------------------------
+
+func registerFileTools(s *server.MCPServer, workspace string) {
+	var allowPaths []string
+	if workspace != "" {
+		allowPaths = []string{workspace}
+	}
+
+	s.AddTool(
+		mcp.NewTool("read_file",
+			mcp.WithDescription("Read the contents of a file"),
+			mcp.WithString("path", mcp.Required(), mcp.Description("File path (relative to workspace or absolute)")),
+			mcp.WithNumber("offset", mcp.Description("Line offset to start reading from (optional)")),
+			mcp.WithNumber("limit", mcp.Description("Maximum number of lines to read (optional)")),
+		),
+		wrapGopherClawTool(&tools.ReadFileTool{AllowPaths: allowPaths}),
+	)
+
+	s.AddTool(
+		mcp.NewTool("write_file",
+			mcp.WithDescription("Write content to a file (creates or overwrites)"),
+			mcp.WithString("path", mcp.Required(), mcp.Description("File path (relative to workspace or absolute)")),
+			mcp.WithString("content", mcp.Required(), mcp.Description("Content to write")),
+		),
+		wrapGopherClawTool(&tools.WriteFileTool{AllowPaths: allowPaths}),
+	)
+
+	s.AddTool(
+		mcp.NewTool("list_dir",
+			mcp.WithDescription("List files and directories in a path"),
+			mcp.WithString("path", mcp.Required(), mcp.Description("Directory path (relative to workspace or absolute)")),
+		),
+		wrapGopherClawTool(&tools.ListDirTool{AllowPaths: allowPaths}),
+	)
+}
+
+// ---------------------------------------------------------------------------
+// Memory tools
+// ---------------------------------------------------------------------------
+
+func registerMemoryTools(s *server.MCPServer, workspace string) {
+	s.AddTool(
+		mcp.NewTool("memory_append",
+			mcp.WithDescription("Append a memory entry to the workspace MEMORY.md file"),
+			mcp.WithString("content", mcp.Required(), mcp.Description("Content to append to memory")),
+		),
+		wrapGopherClawTool(&tools.MemoryAppendTool{Workspace: workspace}),
+	)
+
+	s.AddTool(
+		mcp.NewTool("memory_get",
+			mcp.WithDescription("Read the workspace MEMORY.md file"),
+		),
+		wrapGopherClawTool(&tools.MemoryGetTool{Workspace: workspace}),
+	)
 }

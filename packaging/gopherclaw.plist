@@ -12,6 +12,13 @@
   <true/>
   <key>KeepAlive</key>
   <true/>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>HOME</key>
+    <string>/Users/CURRENT_USER</string>
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
   <key>StandardOutPath</key>
   <string>/usr/local/var/log/gopherclaw.log</string>
   <key>StandardErrorPath</key>

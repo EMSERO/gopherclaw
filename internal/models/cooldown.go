@@ -86,6 +86,18 @@ func (c *Cooldown) RecordSuccess(model string) {
 	delete(c.state, model)
 }
 
+// GC removes expired cooldown entries to prevent unbounded map growth.
+func (c *Cooldown) GC() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	for model, e := range c.state {
+		if now.After(e.until) {
+			delete(c.state, model)
+		}
+	}
+}
+
 // IsAvailable returns true if the model is not in a cooldown period.
 func (c *Cooldown) IsAvailable(model string) bool {
 	c.mu.Lock()

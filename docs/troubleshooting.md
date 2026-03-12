@@ -57,7 +57,7 @@ GopherClaw automatically refreshes tokens in the background, but the initial tok
 2. Send `/pair 482916` to the bot in a DM
 3. The bot should respond with a confirmation
 
-If using `dmPolicy: "allowlist"` instead of `"pairing"`, add the user's Telegram ID to `channels.telegram.allowUsers` in config.
+Telegram uses the pairing mechanism for user allowlisting. Set `dmPolicy: "pairing"` (default) and use `/pair <code>` to authorize users. Discord and Slack support `allowUsers` in config; Telegram does not.
 
 **Group messages:** By default, the bot only responds when mentioned (`@BotName`). Change this with `channels.telegram.groupPolicy`:
 - `"mention"` (default) — respond only when mentioned

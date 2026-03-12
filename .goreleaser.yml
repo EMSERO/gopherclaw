@@ -30,7 +30,11 @@ builds:
       - -s -w -X main.version={{.Version}} -X main.commit={{.ShortCommit}} -X main.date={{.Date}}
 
 archives:
-  - format: tar.gz
+  - id: gopherclaw
+    builds:
+      - gopherclaw
+      - gopherclaw-mcp
+    format: tar.gz
     name_template: "{{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}"
     files:
       - README.md
@@ -41,6 +45,12 @@ archives:
         info:
           owner: root
           group: root
+      - src: packaging/macos-install.sh
+        dst: macos-install.sh
+        strip_parent: true
+      - src: packaging/macos-uninstall.sh
+        dst: macos-uninstall.sh
+        strip_parent: true
 
 nfpms:
   - package_name: gopherclaw

@@ -270,6 +270,29 @@ Trigger a system event — the agent processes the text and delivers the respons
 
 Processing happens asynchronously. The response is delivered to all paired Telegram/Discord/Slack users.
 
+### Notify User
+
+```
+POST /gopherclaw/api/notify
+```
+
+Send a notification message to the user's active channel (Telegram/Discord/Slack). Used by the MCP server and external integrations.
+
+**Request Body:**
+```json
+{
+  "message": "Deployment complete!",
+  "session": "optional-session-key"
+}
+```
+
+**Response:** `200 OK`
+```json
+{
+  "status": "delivered"
+}
+```
+
 ---
 
 ## Control UI Endpoints
