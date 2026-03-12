@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# gopherclaw-restart — restart the gopherclaw-gateway systemd user service
+# gopherclaw-restart — restart the gopherclaw systemd user service
 set -euo pipefail
 
-SERVICE="gopherclaw-gateway.service"
+SERVICE="gopherclaw.service"
 
 echo "Restarting $SERVICE..."
 systemctl --user restart "$SERVICE"

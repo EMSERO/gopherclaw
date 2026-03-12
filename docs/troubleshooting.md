@@ -159,40 +159,40 @@ If Chrome is installed at a non-standard path, set it in config:
 
 ## 7. systemd service won't start
 
-**Symptoms:** `systemctl --user start gopherclaw-gateway` fails or the service exits immediately.
+**Symptoms:** `systemctl --user start gopherclaw` fails or the service exits immediately.
 
-**Cause:** Usually a config error, missing binary, or path issue.
+**Cause:** Usually a config error, missing binary, or path issue. Note: GopherClaw ships a **user-level** systemd unit — always use `systemctl --user`, never `sudo systemctl`.
 
 **Fix:**
 
 1. Check the service status:
    ```bash
-   systemctl --user status gopherclaw-gateway
-   journalctl --user -u gopherclaw-gateway -n 50
+   systemctl --user status gopherclaw
+   journalctl --user -u gopherclaw -n 50
    ```
 
-2. Verify the binary path in the service file:
+2. Verify the service file is installed (deb/rpm packages install it here):
    ```bash
-   cat ~/.config/systemd/user/gopherclaw-gateway.service
+   cat /usr/lib/systemd/user/gopherclaw.service
    ```
    The `ExecStart` path must point to the actual binary location.
 
 3. Test the binary directly:
    ```bash
-   ~/.local/bin/gopherclaw --check
+   gopherclaw --check
    ```
 
 4. If using environment variables, ensure they're set in the service file:
    ```ini
    [Service]
-   Environment=HOME=/home/user
-   ExecStart=/home/user/.local/bin/gopherclaw
+   Environment=HOME=%h
+   ExecStart=/usr/bin/gopherclaw
    ```
 
 5. Reload after changes:
    ```bash
    systemctl --user daemon-reload
-   systemctl --user restart gopherclaw-gateway
+   systemctl --user restart gopherclaw
    ```
 
 ---

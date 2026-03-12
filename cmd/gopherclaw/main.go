@@ -368,12 +368,17 @@ func main() {
 	var primaryAg agent.PrimaryAgent = ag
 	if cfg.Agents.Defaults.Engine == "claude-cli" {
 		cliCfg := cfg.Agents.Defaults.CLIEngine
+
+		// Build system prompt with skills, workspace docs, and identity so the
+		// CLI subprocess has the same context as the standard router agent.
+		sysPrompt := agent.BuildCLISystemPrompt(agentDef, skillList, wsMDs, cliCfg.SystemPrompt)
+
 		ttl := time.Duration(cliCfg.IdleTTLSec) * time.Second
 		sca, err := agent.NewStreamingCLIAgent(logger.Named("claude-cli"), agent.StreamingCLIConfig{
 			Command:      cliCfg.Command,
 			Model:        cliCfg.Model,
 			MCPConfig:    cliCfg.MCPConfig,
-			SystemPrompt: cliCfg.SystemPrompt,
+			SystemPrompt: sysPrompt,
 			ExtraArgs:    cliCfg.ExtraArgs,
 			IdleTTL:      ttl,
 		})
