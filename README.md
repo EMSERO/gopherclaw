@@ -13,10 +13,11 @@ Requires Go 1.26+.
 ## Quick Start
 
 ```bash
-# Install via Homebrew (macOS)
-brew install EMSERO/tap/gopherclaw
+# Install from GitHub Releases (deb)
+curl -LO https://github.com/EMSERO/gopherclaw/releases/latest/download/gopherclaw_0.1.0_linux_amd64.deb
+sudo dpkg -i gopherclaw_0.1.0_linux_amd64.deb
 
-# Or download from GitHub Releases
+# Or download a tarball
 # https://github.com/EMSERO/gopherclaw/releases
 
 # First-time setup
@@ -28,8 +29,8 @@ gopherclaw --migrate
 # Run
 gopherclaw
 
-# As a systemd service
-systemctl --user enable --now gopherclaw-gateway
+# As a systemd user service (Linux)
+systemctl --user enable --now gopherclaw
 
 # Update
 gopherclaw update
@@ -92,7 +93,7 @@ gopherclaw/
                  notify.go         # notify_user — proactive message delivery
                  eidetic.go        # eidetic_search, eidetic_append — semantic memory tools
     eidetic/     client.go         # Eidetic memory sidecar client (HTTP/MCP)
-    hooks/       bus.go            # lifecycle event bus (15 event types)
+    hooks/       hooks.go          # lifecycle event bus (15 event types)
     security/    audit.go          # `gopherclaw security` CLI audit command
     channels/
       common/    chunker.go        # SmartChunk — code-fence-aware message splitting
@@ -164,8 +165,8 @@ gopherclaw --check
 # Run
 gopherclaw
 
-# As a systemd service (Linux)
-systemctl --user start gopherclaw-gateway
+# As a systemd user service (Linux)
+systemctl --user enable --now gopherclaw
 
 # As a launchd service (macOS)
 cp gopherclaw.plist ~/Library/LaunchAgents/
@@ -215,9 +216,9 @@ Session key format depends on `session.scope` in config:
 
 | Scope | Telegram | Discord | Slack |
 |-------|----------|---------|-------|
-| `user` (default) | `agent:main:telegram:<senderID>` | `agent:main:discord:<userID>` | `agent:main:slack:<userID>` |
-| `channel` | `agent:main:telegram:channel:<chatID>` | `agent:main:discord:channel:<channelID>` | `agent:main:slack:channel:<channelID>` |
-| `global` | `agent:main:telegram:global` | `agent:main:discord:global` | `agent:main:slack:global` |
+| `user` (default) | `main:telegram:<senderID>` | `main:discord:<userID>` | `main:slack:<userID>` |
+| `channel` | `main:telegram:channel:<chatID>` | `main:discord:channel:<channelID>` | `main:slack:channel:<channelID>` |
+| `global` | `main:telegram:global` | `main:discord:global` | `main:slack:global` |
 
 ---
 

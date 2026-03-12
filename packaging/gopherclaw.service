@@ -9,6 +9,7 @@ ExecStart=/usr/bin/gopherclaw
 Restart=always
 RestartSec=5
 Environment=HOME=%h
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
 
 # Logging to journal
 StandardOutput=journal
