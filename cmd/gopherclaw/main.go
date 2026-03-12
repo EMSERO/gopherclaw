@@ -363,8 +363,32 @@ func main() {
 	// Build agent registry (subagents, delegate tool, orchestrators)
 	ag, delegateTool, dispatchTools := buildAgents(logger, cfg, agentDef, router, sessionMgr, skillList, wsMDs, workspace, toolList, eideticClient, embedClient, hookBus)
 
+	// Select primary agent engine: "claude-cli" uses StreamingCLIAgent,
+	// anything else (default "router") uses the standard Agent.
+	var primaryAg agent.PrimaryAgent = ag
+	if cfg.Agents.Defaults.Engine == "claude-cli" {
+		cliCfg := cfg.Agents.Defaults.CLIEngine
+		ttl := time.Duration(cliCfg.IdleTTLSec) * time.Second
+		sca, err := agent.NewStreamingCLIAgent(logger.Named("claude-cli"), agent.StreamingCLIConfig{
+			Command:      cliCfg.Command,
+			Model:        cliCfg.Model,
+			MCPConfig:    cliCfg.MCPConfig,
+			SystemPrompt: cliCfg.SystemPrompt,
+			ExtraArgs:    cliCfg.ExtraArgs,
+			IdleTTL:      ttl,
+		})
+		if err != nil {
+			logger.Fatalf("claude-cli engine: %v", err)
+		}
+		defer sca.Close()
+		primaryAg = sca
+		logger.Infof("engine: claude-cli (command=%s, model=%s)", sca.ResolveModel(""), cliCfg.Command)
+	} else {
+		logger.Infof("engine: router (primary=%s)", cfg.Agents.Defaults.Model.Primary)
+	}
+
 	// Cron manager
-	cronMgr := cron.New(logger.Named("cron"), agentDir, makeCronRunner(logger.Named("cron"), ag, cfg))
+	cronMgr := cron.New(logger.Named("cron"), agentDir, makeCronRunner(logger.Named("cron"), primaryAg, cfg))
 
 	// Auto-migrate jobs.json from OpenClaw if missing or stale
 	if dst, copied, err := migrate.MigrateJobsFile("", ""); err != nil {
@@ -428,7 +452,7 @@ func main() {
 	}
 
 	// HTTP gateway — created early so channels can be wired as deliverers
-	gw := gateway.New(logger, cfg, ag, sessionMgr, cronMgr, taskMgr, toolList, logBroadcaster)
+	gw := gateway.New(logger, cfg, primaryAg, sessionMgr, cronMgr, taskMgr, toolList, logBroadcaster)
 	gw.SetVersion(version)
 
 	// Wire skill manager to gateway for dashboard enable/disable (REQ-101)
@@ -450,7 +474,7 @@ func main() {
 	)
 
 	// Channel bots — created and registered with gateway/confirmMgr
-	bots := initChannelBots(logger, cfg, ag, sessionMgr, cronMgr, confirmMgr, gw)
+	bots := initChannelBots(logger, cfg, primaryAg, sessionMgr, cronMgr, confirmMgr, gw)
 	tgBot, dcBot, slBot := bots.tg, bots.dc, bots.sl
 
 	// Find NotifyUserTool so we can wire announcers
@@ -498,7 +522,7 @@ func main() {
 		}
 		hbRunner = heartbeat.NewRunner(heartbeat.RunnerOpts{
 			Logger: logger.Named("heartbeat"),
-			Agent:  ag,
+			Agent:  primaryAg,
 			CfgFn: func() config.HeartbeatConfig {
 				return ag.GetConfig().Agents.Defaults.Heartbeat
 			},

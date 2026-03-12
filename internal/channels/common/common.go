@@ -160,7 +160,7 @@ func CombineTexts(texts []string) string {
 // CmdCtxDeps holds the shared bot dependencies needed to build a commands.Ctx.
 // Each channel bot embeds or passes this to BuildCmdCtx.
 type CmdCtxDeps struct {
-	Agent       *agent.Agent
+	Agent       agent.PrimaryAgent
 	Sessions    *session.Manager
 	Config      *config.Root
 	CronManager *cron.Manager

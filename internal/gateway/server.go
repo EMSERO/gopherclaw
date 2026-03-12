@@ -49,7 +49,7 @@ type SkillToggler func(name string, enabled bool) bool
 // Server is the HTTP gateway.
 type Server struct {
 	cfg            *config.Root
-	ag             *agent.Agent
+	ag             agent.PrimaryAgent
 	sessions       *session.Manager
 	cronMgr        *cron.Manager
 	taskMgr        *taskqueue.Manager
@@ -65,7 +65,7 @@ type Server struct {
 }
 
 // New creates the gateway server.
-func New(logger *zap.SugaredLogger, cfg *config.Root, ag *agent.Agent, sessions *session.Manager, cronMgr *cron.Manager, taskMgr *taskqueue.Manager, tools []agent.Tool, logBroadcaster *LogBroadcaster) *Server {
+func New(logger *zap.SugaredLogger, cfg *config.Root, ag agent.PrimaryAgent, sessions *session.Manager, cronMgr *cron.Manager, taskMgr *taskqueue.Manager, tools []agent.Tool, logBroadcaster *LogBroadcaster) *Server {
 	s := &Server{cfg: cfg, ag: ag, sessions: sessions, cronMgr: cronMgr, taskMgr: taskMgr, tools: tools, logBroadcaster: logBroadcaster, logger: logger}
 
 	// Warn only when the operator has explicitly opted out of auth on a public bind.

@@ -11,14 +11,19 @@ import (
 
 // handleUsage handles GET /gopherclaw/api/usage — returns token usage per session (REQ-420).
 func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
-	if s.ag == nil || s.ag.Usage == nil {
+	if s.ag == nil {
+		s.writeJSON(w, http.StatusOK, UsageAllResponse{Sessions: map[string]any{}, Aggregate: nil})
+		return
+	}
+	usage := s.ag.GetUsage()
+	if usage == nil {
 		s.writeJSON(w, http.StatusOK, UsageAllResponse{Sessions: map[string]any{}, Aggregate: nil})
 		return
 	}
 
 	sessionKey := r.URL.Query().Get("session")
 	if sessionKey != "" {
-		u, calls := s.ag.Usage.GetSession(sessionKey)
+		u, calls := usage.GetSession(sessionKey)
 		s.writeJSON(w, http.StatusOK, UsageSessionResponse{
 			Session: sessionKey,
 			Usage:   u,
@@ -27,8 +32,8 @@ func (s *Server) handleUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	all := s.ag.Usage.GetAll()
-	agg := s.ag.Usage.Aggregate()
+	all := usage.GetAll()
+	agg := usage.Aggregate()
 	s.writeJSON(w, http.StatusOK, UsageAllResponse{
 		Sessions:  all,
 		Aggregate: agg,

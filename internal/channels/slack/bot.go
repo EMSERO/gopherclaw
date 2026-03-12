@@ -35,7 +35,7 @@ type Bot struct {
 	cfg      config.SlackConfig
 	msgCfg   config.Messages
 	fullCfg  *config.Root
-	ag       *agent.Agent
+	ag       agent.PrimaryAgent
 	sessions *session.Manager
 	cronMgr  *cron.Manager
 	taskMgr  *taskqueue.Manager
@@ -72,7 +72,7 @@ func generatePairCode() string { return common.GeneratePairCode() }
 func pairedUsersFile() string { return common.PairedUsersPath("slack") }
 
 // New creates a Slack Socket Mode bot.
-func New(logger *zap.SugaredLogger, cfg config.SlackConfig, msgCfg config.Messages, fullCfg *config.Root, ag *agent.Agent, sm *session.Manager, cronMgr *cron.Manager) (*Bot, error) {
+func New(logger *zap.SugaredLogger, cfg config.SlackConfig, msgCfg config.Messages, fullCfg *config.Root, ag agent.PrimaryAgent, sm *session.Manager, cronMgr *cron.Manager) (*Bot, error) {
 	api := slacklib.New(
 		cfg.BotToken,
 		slacklib.OptionAppLevelToken(cfg.AppToken),
