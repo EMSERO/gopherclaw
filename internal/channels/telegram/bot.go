@@ -154,6 +154,19 @@ func (b *Bot) Start(ctx context.Context) error {
 	b.mu.Lock()
 	b.cancelBot = cancel
 	b.mu.Unlock()
+	// Register bot commands so Telegram shows the correct menu.
+	_ = b.bot.SetCommands([]tele.Command{
+		{Text: "new", Description: "Clear session and start fresh"},
+		{Text: "compact", Description: "Compress session to save context"},
+		{Text: "model", Description: "Show or switch model"},
+		{Text: "context", Description: "Show session size and token estimate"},
+		{Text: "export", Description: "Dump full conversation history"},
+		{Text: "status", Description: "Show version, uptime, and stats"},
+		{Text: "cron", Description: "Manage scheduled jobs"},
+		{Text: "tasks", Description: "Show background tasks"},
+		{Text: "help", Description: "Show available commands"},
+	})
+
 	go func() {
 		<-childCtx.Done()
 		b.connected.Store(false)
