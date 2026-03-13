@@ -243,7 +243,7 @@ func (t *BrowserTool) CaptureScreenshot(ctx context.Context, sessionKey string) 
 }
 
 // SetViewport overrides the browser viewport size for the given session.
-func (t *BrowserTool) SetViewport(ctx context.Context, sessionKey string, width, height int) {
+func (t *BrowserTool) SetViewport(sessionKey string, width, height int) {
 	if width <= 0 {
 		width = 1280
 	}

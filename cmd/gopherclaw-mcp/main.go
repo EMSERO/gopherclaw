@@ -274,7 +274,7 @@ func browserHandler(pool *tools.BrowserPool, sessionKey, action string) server.T
 			w, _ := args["width"].(float64)
 			h, _ := args["height"].(float64)
 			if w > 0 || h > 0 {
-				bt.SetViewport(ctx, sessionKey, int(w), int(h))
+				bt.SetViewport(sessionKey, int(w), int(h))
 			}
 			buf, pageURL, err := bt.CaptureScreenshot(ctx, sessionKey)
 			if err != nil {
