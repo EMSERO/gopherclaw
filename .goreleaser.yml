@@ -82,6 +82,19 @@ checksum:
 
 changelog:
   sort: asc
+  use: github
+  groups:
+    - title: "Security"
+      regexp: '^.*?(CVE-\d{4}-\d+|security|vuln|gosec|govulncheck).*$'
+      order: 0
+    - title: "Features"
+      regexp: '^feat'
+      order: 1
+    - title: "Bug Fixes"
+      regexp: '^fix'
+      order: 2
+    - title: "Other"
+      order: 999
   filters:
     exclude:
       - "^docs:"
@@ -89,6 +102,8 @@ changelog:
       - "^chore:"
 
 release:
+  header: |
+    {{ if .Env.SECURITY_REPORT }}{{ .Env.SECURITY_REPORT }}{{ end }}
   github:
     owner: EMSERO
     name: gopherclaw

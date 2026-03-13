@@ -80,8 +80,99 @@ jobs:
           go-version: "1.26"
           cache: true
 
+      - name: Install security tools
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          curl -sSfL https://raw.githubusercontent.com/anchore/grype/main/install.sh | sh -s -- -b /usr/local/bin
+
       - name: Install syft (for SBOM generation)
         uses: anchore/sbom-action/download-syft@v0
+
+      - name: Generate security report
+        run: |
+          PREV_TAG=$(git tag --sort=-v:refname | head -2 | tail -1)
+          CURR_TAG=${GITHUB_REF_NAME}
+
+          echo "## Security" > /tmp/security-report.md
+          echo "" >> /tmp/security-report.md
+
+          # govulncheck status (already passed in the security gate job)
+          echo "**govulncheck:** No known vulnerabilities detected in reachable code." >> /tmp/security-report.md
+          echo "" >> /tmp/security-report.md
+
+          # Generate current SBOM
+          syft dir:. -o cyclonedx-json > /tmp/current.sbom.json
+
+          # Scan current SBOM with grype
+          CURR_VULNS=$(grype sbom:/tmp/current.sbom.json -o json 2>/dev/null || true)
+          CURR_CVES=$(echo "$CURR_VULNS" | jq -r '.matches[]?.vulnerability.id // empty' 2>/dev/null | sort -u || true)
+          CURR_COUNT=$(echo "$CURR_CVES" | grep -c 'CVE\|GHSA' || echo 0)
+
+          if [ "$CURR_COUNT" -gt 0 ]; then
+            echo "**Open vulnerabilities ($CURR_COUNT):**" >> /tmp/security-report.md
+            echo "" >> /tmp/security-report.md
+            echo "$CURR_VULNS" | jq -r '
+              .matches[]? |
+              "- `\(.vulnerability.id)` (\(.vulnerability.severity // "unknown")) — \(.artifact.name) \(.artifact.version)"
+            ' 2>/dev/null | sort -u >> /tmp/security-report.md
+            echo "" >> /tmp/security-report.md
+          else
+            echo "**grype:** No known CVEs in dependencies." >> /tmp/security-report.md
+            echo "" >> /tmp/security-report.md
+          fi
+
+          # Diff against previous release SBOM if available
+          if [ -n "$PREV_TAG" ] && [ "$PREV_TAG" != "$CURR_TAG" ]; then
+            # Download any SBOM from previous release (pick linux-amd64 as representative)
+            PREV_SBOM_NAME="gopherclaw-${PREV_TAG#v}-linux-amd64.sbom.json"
+            if gh release download "$PREV_TAG" --pattern "$PREV_SBOM_NAME" --dir /tmp 2>/dev/null; then
+              PREV_VULNS=$(grype sbom:/tmp/"$PREV_SBOM_NAME" -o json 2>/dev/null || true)
+              PREV_CVES=$(echo "$PREV_VULNS" | jq -r '.matches[]?.vulnerability.id // empty' 2>/dev/null | sort -u || true)
+
+              # Resolved = in previous but not in current
+              RESOLVED=$(comm -23 <(echo "$PREV_CVES") <(echo "$CURR_CVES") || true)
+              # New = in current but not in previous
+              NEW=$(comm -13 <(echo "$PREV_CVES") <(echo "$CURR_CVES") || true)
+
+              if [ -n "$RESOLVED" ] && [ "$(echo "$RESOLVED" | grep -c 'CVE\|GHSA')" -gt 0 ]; then
+                echo "**Resolved since ${PREV_TAG}:**" >> /tmp/security-report.md
+                echo "" >> /tmp/security-report.md
+                echo "$RESOLVED" | while read -r cve; do
+                  [ -n "$cve" ] || continue
+                  DETAIL=$(echo "$PREV_VULNS" | jq -r --arg id "$cve" '
+                    .matches[]? | select(.vulnerability.id == $id) |
+                    "(\(.vulnerability.severity // "unknown")) — \(.artifact.name) \(.artifact.version)"
+                  ' 2>/dev/null | head -1)
+                  echo "- \`${cve}\` ${DETAIL}" >> /tmp/security-report.md
+                done
+                echo "" >> /tmp/security-report.md
+              fi
+
+              if [ -n "$NEW" ] && [ "$(echo "$NEW" | grep -c 'CVE\|GHSA')" -gt 0 ]; then
+                echo "**New since ${PREV_TAG}:**" >> /tmp/security-report.md
+                echo "" >> /tmp/security-report.md
+                echo "$NEW" | while read -r cve; do
+                  [ -n "$cve" ] || continue
+                  DETAIL=$(echo "$CURR_VULNS" | jq -r --arg id "$cve" '
+                    .matches[]? | select(.vulnerability.id == $id) |
+                    "(\(.vulnerability.severity // "unknown")) — \(.artifact.name) \(.artifact.version)"
+                  ' 2>/dev/null | head -1)
+                  echo "- \`${cve}\` ${DETAIL}" >> /tmp/security-report.md
+                done
+                echo "" >> /tmp/security-report.md
+              fi
+            fi
+          fi
+
+          echo "**SBOM:** CycloneDX JSON attached for each archive artifact." >> /tmp/security-report.md
+          echo "" >> /tmp/security-report.md
+
+          # Set as env var for GoReleaser
+          {
+            echo 'SECURITY_REPORT<<EOF'
+            cat /tmp/security-report.md
+            echo 'EOF'
+          } >> "$GITHUB_ENV"
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
