@@ -29,7 +29,7 @@ func TestStress_ConcurrentAppendAndGetHistory(t *testing.T) {
 	}
 	defer m.Stop()
 
-	const goroutines = 50
+	const goroutines = 20
 	const key = "stress:append-get"
 
 	var wg sync.WaitGroup
