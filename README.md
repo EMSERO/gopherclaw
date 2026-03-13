@@ -46,8 +46,10 @@ OpenClaw works, but it carries framework weight, loose dependency hygiene, and i
 Every dependency is a liability. GopherClaw uses the smallest set of well-maintained packages that do the job — chi for routing, zap for logging, gorilla/websocket, go-openai, telebot — and nothing else. No ORM, no megaframework, no 40-package transitive tree hiding CVEs.
 
 **Security is not an afterthought.**
-- Trivy scans on every meaningful change (0 vulns, 0 secrets, 0 misconfigs)
+- govulncheck on every PR and release gate (reachability-aware Go vulnerability scanning)
+- gosec static analysis for security anti-patterns
 - golangci-lint with errcheck, staticcheck, and unused — 0 issues
+- SBOM (CycloneDX) generated for every release artifact
 - Explicit error handling on every Close, Write, and deferred cleanup
 - Minimal external attack surface: few dependencies, no inbound connections initiated by the binary, loopback-only gateway by default
 
@@ -64,6 +66,7 @@ Targeting Go 1.26 means the Green Tea GC, faster stdlib, and access to `go fix` 
 ```
 gopherclaw/
   cmd/gopherclaw/main.go          # entry point — wire and run
+  cmd/gopherclaw-mcp/main.go      # MCP server binary (stdio transport)
   internal/
     config/      config.go         # config.json → Go structs + defaults
     log/         log.go            # zap structured logger
@@ -118,8 +121,8 @@ gopherclaw/
     taskqueue/   manager.go         # background task queue with concurrency, persistence, pruning
     agentapi/    agentapi.go        # Deliverer interface for cross-channel message delivery
   .github/workflows/
-    ci.yml                          # test + lint on PRs
-    release.yml                     # goreleaser on version tags
+    ci.yml                          # test + lint + govulncheck on PRs
+    release.yml                     # test + lint + govulncheck + goreleaser + SBOM on version tags
   .goreleaser.yml                   # multi-platform release config
   specs/                            # feature specifications
   go.mod
@@ -199,6 +202,79 @@ The dispatcher runs independent tasks in parallel via goroutines, respects depen
 | `/context` | Show session size and token estimate |
 | `/export` | Dump full conversation history |
 | `/cron` | Manage scheduled jobs |
+
+---
+
+## MCP Server (`gopherclaw-mcp`)
+
+GopherClaw ships a standalone MCP (Model Context Protocol) server binary that exposes GopherClaw's tools to any MCP-compatible client — Claude Code, Claude Desktop, Cursor, Windsurf, etc.
+
+### Available Tools
+
+| Tool | Description | Requires |
+|------|-------------|----------|
+| `browser_navigate` | Navigate to a URL, return page text | `tools.browser.enabled` |
+| `browser_screenshot` | Capture page as PNG (returned as base64 image) | `tools.browser.enabled` |
+| `browser_click` | Click element by CSS selector | `tools.browser.enabled` |
+| `browser_type` | Type text into an input element | `tools.browser.enabled` |
+| `browser_eval` | Execute JavaScript and return result | `tools.browser.enabled` |
+| `browser_scrape` | Scrape elements by CSS selector | `tools.browser.enabled` |
+| `browser_snapshot` | Accessibility snapshot (title, URL, interactive elements) | `tools.browser.enabled` |
+| `browser_links` | List all links on the page | `tools.browser.enabled` |
+| `browser_text` | Get full page text content | `tools.browser.enabled` |
+| `browser_cookies` | Get cookies for current page | `tools.browser.enabled` |
+| `eidetic_search` | Semantic memory search (hybrid keyword + vector) | `eidetic.enabled` |
+| `eidetic_append` | Store a memory entry (max 4000 chars) | `eidetic.enabled` |
+| `notify_user` | Send notification to user's active channel | `gateway.port > 0` |
+| `web_search` | Search the web (DuckDuckGo) | always |
+| `web_fetch` | Fetch a web page as text (with SSRF protection) | always |
+| `read_file` | Read file contents (scoped to workspace) | always |
+| `write_file` | Write/create a file (scoped to workspace) | always |
+| `list_dir` | List directory contents (scoped to workspace) | always |
+| `memory_append` | Append to workspace MEMORY.md | `agents.defaults.memory.enabled` |
+| `memory_get` | Read workspace MEMORY.md | `agents.defaults.memory.enabled` |
+
+### Setup with Claude Code
+
+Add to `~/.claude/claude_code_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "gopherclaw": {
+      "command": "/usr/bin/gopherclaw-mcp",
+      "args": ["--config", "~/.gopherclaw/config.json"]
+    }
+  }
+}
+```
+
+### Setup with Claude Desktop
+
+Add to `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "gopherclaw": {
+      "command": "/usr/bin/gopherclaw-mcp",
+      "args": ["--config", "/home/you/.gopherclaw/config.json"]
+    }
+  }
+}
+```
+
+### Configuration
+
+`gopherclaw-mcp` reads the same `~/.gopherclaw/config.json` as the main binary. Tools are auto-registered based on what's enabled in config:
+
+- **Browser tools** require `tools.browser.enabled: true` and Chrome/Chromium installed
+- **Eidetic tools** require `eidetic.enabled: true` and the eidetic sidecar running
+- **Notify tool** requires `gateway.port` > 0 (routes through the gateway HTTP API)
+- **File tools** are scoped to `agents.defaults.workspace` if set (otherwise unrestricted)
+- **Web tools** and **memory tools** are always available (if memory is enabled in config)
+
+Logs are written to `~/.gopherclaw/logs/gopherclaw-mcp.log`.
 
 ---
 
