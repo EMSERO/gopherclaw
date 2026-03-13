@@ -2,6 +2,8 @@ version: "2"
 
 linters:
   default: standard
+  enable:
+    - gosec
   settings:
     errcheck:
       exclude-functions:
@@ -10,8 +12,25 @@ linters:
         - (io.Closer).Close
         - (net.Conn).Close
         - os.RemoveAll
+    gosec:
+      excludes:
+        - G101 # false positives on const/var names containing "token", "key", etc.
+        - G115 # integer overflow on len() conversions — not reachable
+        - G117 # struct fields named "APIKey", "SessionKey" — not hardcoded secrets
+        - G204 # subprocess with variable — exec tool runs commands by design; Docker sandbox mitigates
+        - G301 # MkdirAll 0755 — standard directory permissions for logs, config, skills
+        - G302 # OpenFile/Chmod 0644/0755 — log files and binaries need these perms
+        - G304 # file inclusion via variable — reading config/MEMORY.md from internal paths
+        - G306 # WriteFile 0644 — non-secret content files (config, identity, workspace files)
+        - G404 # math/rand for retry jitter and sleep timing, not security-sensitive
+        - G602 # slice bounds already guarded by explicit checks
+        - G703 # path traversal on atomicfile — paths are internal, not user-tainted
+        - G704 # SSRF on internal HTTP clients hitting configured endpoints
+        - G705 # XSS via fmt.Fprintln — writing to files/logs, not HTTP responses
+        - G706 # log injection — using structured logging (slog), not string interpolation
   exclusions:
     rules:
       - path: _test\.go
         linters:
           - errcheck
+          - gosec

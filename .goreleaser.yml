@@ -71,6 +71,11 @@ nfpms:
       postinstall: packaging/postinstall.sh
       preremove: packaging/preremove.sh
 
+sboms:
+  - artifacts: archive
+    documents:
+      - "{{ .ProjectName }}-{{ .Version }}-{{ .Os }}-{{ .Arch }}.sbom.json"
+
 checksum:
   name_template: checksums.txt
   algorithm: sha256
