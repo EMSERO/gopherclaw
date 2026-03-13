@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +16,10 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/EMSERO/gopherclaw/internal/agentapi"
+	"github.com/EMSERO/gopherclaw/internal/config"
+	"github.com/EMSERO/gopherclaw/internal/eidetic"
+	"github.com/EMSERO/gopherclaw/internal/embeddings"
+	"github.com/EMSERO/gopherclaw/internal/memory"
 	"github.com/EMSERO/gopherclaw/internal/models"
 )
 
@@ -34,6 +40,25 @@ type StreamingCLIAgent struct {
 	sessionModels map[string]string
 
 	idleTTL time.Duration // how long before idle sessions are reaped
+
+	// Memory integration
+	cfg       *config.Root
+	workspace string
+
+	// Base system prompt (identity, skills, workspace docs — built once)
+	baseSystemPrompt string
+
+	// Eidetic memory (nil = disabled)
+	eideticMu  sync.RWMutex
+	eideticC   eidetic.Client
+	embedMu    sync.RWMutex
+	embedC     *embeddings.Client
+	eideticSem chan struct{} // bounds concurrent background writes
+
+	// MEMORY.md cache (re-read only when mtime changes)
+	memoryMu    sync.Mutex
+	memoryCache string
+	memoryMtime time.Time
 }
 
 // cliSession is a running claude subprocess for one session.
@@ -55,7 +80,11 @@ type StreamingCLIConfig struct {
 	Model        string   // model to request (e.g. "sonnet")
 	IdleTTL      time.Duration
 	MCPConfig    string // path to MCP config JSON for GopherClaw tools
-	SystemPrompt string // custom system prompt
+	SystemPrompt string // static base system prompt (identity, skills, workspace docs)
+
+	// Memory integration
+	Config    *config.Root // full config for eidetic settings, timezone, etc.
+	Workspace string       // filesystem path for MEMORY.md, daily logs
 }
 
 // NewStreamingCLIAgent creates a StreamingCLIAgent.
@@ -84,9 +113,9 @@ func NewStreamingCLIAgent(logger *zap.SugaredLogger, cfg StreamingCLIConfig) (*S
 	if cfg.MCPConfig != "" {
 		args = append(args, "--mcp-config", cfg.MCPConfig)
 	}
-	if cfg.SystemPrompt != "" {
-		args = append(args, "--system-prompt", cfg.SystemPrompt)
-	}
+	// NOTE: --system-prompt is NOT baked into base args.  It is built
+	// dynamically at spawn time so it can include MEMORY.md and eidetic
+	// recent entries.  The static portion is stored in baseSystemPrompt.
 	args = append(args, cfg.ExtraArgs...)
 
 	ttl := cfg.IdleTTL
@@ -95,13 +124,17 @@ func NewStreamingCLIAgent(logger *zap.SugaredLogger, cfg StreamingCLIConfig) (*S
 	}
 
 	return &StreamingCLIAgent{
-		command:       resolved,
-		args:          args,
-		logger:        logger,
-		sessions:      make(map[string]*cliSession),
-		usage:         NewUsageTracker(),
-		sessionModels: make(map[string]string),
-		idleTTL:       ttl,
+		command:          resolved,
+		args:             args,
+		logger:           logger,
+		sessions:         make(map[string]*cliSession),
+		usage:            NewUsageTracker(),
+		sessionModels:    make(map[string]string),
+		idleTTL:          ttl,
+		cfg:              cfg.Config,
+		workspace:        cfg.Workspace,
+		baseSystemPrompt: cfg.SystemPrompt,
+		eideticSem:       make(chan struct{}, 8),
 	}, nil
 }
 
@@ -150,6 +183,12 @@ func (s *StreamingCLIAgent) spawn(sessionKey string) (*cliSession, error) {
 		args = append(filtered, "--model", m)
 	}
 	s.modelMu.RUnlock()
+
+	// Build dynamic system prompt with MEMORY.md + eidetic recent entries.
+	sysPrompt := s.buildDynamicSystemPrompt()
+	if sysPrompt != "" {
+		args = append(args, "--system-prompt", sysPrompt)
+	}
 
 	cmd := exec.CommandContext(ctx, s.command, args...)
 
@@ -218,6 +257,257 @@ func (s *StreamingCLIAgent) Close() {
 		sess.kill()
 	}
 	s.sessions = make(map[string]*cliSession)
+}
+
+// ── memory integration ──────────────────────────────────────────────
+
+// SetEidetic wires an Eidetic client into the agent. Pass nil to disable.
+func (s *StreamingCLIAgent) SetEidetic(client eidetic.Client) {
+	s.eideticMu.Lock()
+	s.eideticC = client
+	s.eideticMu.Unlock()
+}
+
+func (s *StreamingCLIAgent) getEidetic() eidetic.Client {
+	s.eideticMu.RLock()
+	c := s.eideticC
+	s.eideticMu.RUnlock()
+	return c
+}
+
+// SetEmbeddings wires an embeddings client for hybrid search. Pass nil to disable.
+func (s *StreamingCLIAgent) SetEmbeddings(client *embeddings.Client) {
+	s.embedMu.Lock()
+	s.embedC = client
+	s.embedMu.Unlock()
+}
+
+func (s *StreamingCLIAgent) getEmbeddings() *embeddings.Client {
+	s.embedMu.RLock()
+	c := s.embedC
+	s.embedMu.RUnlock()
+	return c
+}
+
+func (s *StreamingCLIAgent) embed(ctx context.Context, text string) []float32 {
+	ec := s.getEmbeddings()
+	if ec == nil {
+		return nil
+	}
+	vec, err := ec.Embed(ctx, text)
+	if err != nil {
+		s.logger.Debugf("embeddings: generation failed (non-fatal): %v", err)
+		return nil
+	}
+	return vec
+}
+
+func (s *StreamingCLIAgent) eideticAgentID() string {
+	if s.cfg != nil {
+		if id := s.cfg.Eidetic.AgentID; id != "" {
+			return id
+		}
+	}
+	return "main"
+}
+
+// loadMemoryCached returns MEMORY.md content, re-reading only when mtime changes.
+func (s *StreamingCLIAgent) loadMemoryCached() string {
+	if s.workspace == "" {
+		return ""
+	}
+	if s.cfg != nil && !s.cfg.Agents.Defaults.Memory.Enabled {
+		return ""
+	}
+	p := filepath.Join(s.workspace, "MEMORY.md")
+	info, err := os.Stat(p)
+	if err != nil {
+		return ""
+	}
+	s.memoryMu.Lock()
+	if info.ModTime().Equal(s.memoryMtime) && s.memoryCache != "" {
+		cached := s.memoryCache
+		s.memoryMu.Unlock()
+		return cached
+	}
+	s.memoryMu.Unlock()
+
+	content := memory.LoadMemoryMD(s.workspace)
+	s.memoryMu.Lock()
+	s.memoryMtime = info.ModTime()
+	s.memoryCache = content
+	s.memoryMu.Unlock()
+	return content
+}
+
+// buildDynamicSystemPrompt builds the full system prompt for a subprocess,
+// combining the static base (identity, skills, workspace docs) with dynamic
+// content: current time, MEMORY.md, and recent eidetic entries.
+func (s *StreamingCLIAgent) buildDynamicSystemPrompt() string {
+	var sb strings.Builder
+	sb.WriteString(s.baseSystemPrompt)
+
+	// Current date/time
+	tz := "UTC"
+	if s.cfg != nil && s.cfg.Agents.Defaults.UserTimezone != "" {
+		tz = s.cfg.Agents.Defaults.UserTimezone
+	}
+	loc, err := time.LoadLocation(tz)
+	if err != nil {
+		loc = time.UTC
+	}
+	now := time.Now().In(loc)
+	fmt.Fprintf(&sb, "Current date/time: %s (%s)\n\n", now.Format("2006-01-02 15:04:05"), tz)
+
+	// MEMORY.md
+	if content := s.loadMemoryCached(); content != "" {
+		sb.WriteString("## Memory\n\n")
+		sb.WriteString(content)
+		sb.WriteString("\n\n")
+	}
+
+	// Eidetic-specific rules
+	if s.getEidetic() != nil {
+		sb.WriteString("- Before asking the user a question, use eidetic_search to check if you already know the answer from a previous conversation. Only ask if memory has no relevant result.\n\n")
+	}
+
+	// Recent eidetic entries (2s timeout, non-fatal)
+	if c := s.getEidetic(); c != nil {
+		limit := 20
+		if s.cfg != nil && s.cfg.Eidetic.RecentLimit > 0 {
+			limit = s.cfg.Eidetic.RecentLimit
+		}
+		rCtx, rCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		entries, rErr := c.GetRecent(rCtx, s.eideticAgentID(), limit)
+		rCancel()
+		if rErr != nil {
+			s.logger.Debugf("eidetic: get_recent failed (non-fatal): %v", rErr)
+		} else if len(entries) > 0 {
+			sb.WriteString("## Recent Memory\n\n")
+			for _, e := range entries {
+				fmt.Fprintf(&sb, "- [%s] %s\n",
+					e.Timestamp.Format("2006-01-02 15:04"),
+					e.Content,
+				)
+			}
+			sb.WriteString("\n")
+		}
+	}
+
+	return sb.String()
+}
+
+// enrichWithRecall prepends semantically recalled memories to the user message,
+// giving the subprocess context from previous conversations.
+func (s *StreamingCLIAgent) enrichWithRecall(ctx context.Context, message string) string {
+	c := s.getEidetic()
+	if c == nil || message == "" {
+		return message
+	}
+	if s.cfg != nil && s.cfg.Eidetic.RecallEnabled != nil && !*s.cfg.Eidetic.RecallEnabled {
+		return message
+	}
+	if len(strings.Fields(message)) < 3 {
+		return message
+	}
+
+	limit := 5
+	threshold := 0.4
+	timeoutSec := 5
+	if s.cfg != nil {
+		if s.cfg.Eidetic.RecallLimit > 0 {
+			limit = s.cfg.Eidetic.RecallLimit
+		}
+		if s.cfg.Eidetic.RecallThreshold > 0 {
+			threshold = s.cfg.Eidetic.RecallThreshold
+		}
+		if s.cfg.Eidetic.RecallTimeoutS > 0 {
+			timeoutSec = s.cfg.Eidetic.RecallTimeoutS
+		} else if s.cfg.Eidetic.TimeoutSeconds > 0 {
+			timeoutSec = s.cfg.Eidetic.TimeoutSeconds
+		}
+	}
+
+	rCtx, rCancel := context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+	defer rCancel()
+
+	queryVec := s.embed(rCtx, message)
+	fetchLimit := limit * 2
+	if fetchLimit < 10 {
+		fetchLimit = 10
+	}
+
+	results, err := c.SearchMemory(rCtx, eidetic.SearchRequest{
+		Query:     message,
+		Limit:     fetchLimit,
+		Threshold: threshold,
+		Vector:    queryVec,
+		Hybrid:    queryVec != nil,
+	})
+	if err != nil {
+		s.logger.Debugf("eidetic: recall search failed (non-fatal): %v", err)
+		return message
+	}
+	if len(results) == 0 {
+		return message
+	}
+
+	results = eidetic.MMR(results, 0.7, limit)
+
+	var sb strings.Builder
+	sb.WriteString("[Recalled memories from previous conversations:]\n")
+	count := 0
+	for _, r := range results {
+		if r.Relevance < threshold {
+			continue
+		}
+		count++
+		fmt.Fprintf(&sb, "- [%s] (relevance: %.0f%%) %s\n",
+			r.Timestamp.Format("2006-01-02"),
+			r.Relevance*100,
+			r.Content,
+		)
+	}
+	if count == 0 {
+		return message
+	}
+	sb.WriteString("\n---\n")
+	sb.WriteString(message)
+	return sb.String()
+}
+
+// appendToEidetic saves a conversation turn to eidetic memory in the background.
+func (s *StreamingCLIAgent) appendToEidetic(sessionKey, userText, assistantText string) {
+	c := s.getEidetic()
+	if c == nil {
+		return
+	}
+	content := fmt.Sprintf("[User]: %s\n[Assistant]: %s", userText, assistantText)
+	agentID := s.eideticAgentID()
+	tags := []string{
+		"session:" + sessionKey,
+		"agent:" + agentID,
+	}
+	select {
+	case s.eideticSem <- struct{}{}:
+	default:
+		s.logger.Debugf("eidetic: append_memory skipped (semaphore full)")
+		return
+	}
+	go func() {
+		defer func() { <-s.eideticSem }()
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		vec := s.embed(ctx, content)
+		if err := c.AppendMemory(ctx, eidetic.AppendRequest{
+			Content: content,
+			AgentID: agentID,
+			Tags:    tags,
+			Vector:  vec,
+		}); err != nil {
+			s.logger.Warnf("eidetic: append_memory failed (non-fatal): %v", err)
+		}
+	}()
 }
 
 // ── cliSession helpers ──────────────────────────────────────────────
@@ -380,6 +670,9 @@ func (s *StreamingCLIAgent) GetUsage() *UsageTracker { return s.usage }
 // ── core chat implementation ────────────────────────────────────────
 
 func (s *StreamingCLIAgent) chatImpl(ctx context.Context, sessionKey, message string, imageURLs []string, cb *StreamCallbacks) (Response, error) {
+	// Enrich the message with semantically recalled memories from previous conversations.
+	enrichedMessage := s.enrichWithRecall(ctx, message)
+
 	sess, err := s.getOrSpawn(sessionKey)
 	if err != nil {
 		return Response{}, err
@@ -390,10 +683,10 @@ func (s *StreamingCLIAgent) chatImpl(ctx context.Context, sessionKey, message st
 	defer sess.mu.Unlock()
 	sess.resetIdle(s.idleTTL)
 
-	// Send the message.
+	// Send the enriched message.
 	input := cliInputMessage{
 		Type:    "user",
-		Message: cliInputContent{Role: "user", Content: message},
+		Message: cliInputContent{Role: "user", Content: enrichedMessage},
 	}
 	data, _ := json.Marshal(input)
 	data = append(data, '\n')
@@ -411,13 +704,24 @@ func (s *StreamingCLIAgent) chatImpl(ctx context.Context, sessionKey, message st
 		if _, err := sess2.stdin.Write(data); err != nil {
 			return Response{}, fmt.Errorf("streaming-cli: write after respawn: %w", err)
 		}
-		return s.readResponse(ctx, sessionKey, sess2, cb)
+		resp, err := s.readResponse(ctx, sessionKey, sess2, cb)
+		if err == nil && resp.Text != "" {
+			s.appendToEidetic(sessionKey, message, resp.Text)
+		}
+		return resp, err
 	}
 
 	resp, err := s.readResponse(ctx, sessionKey, sess, cb)
 	if err != nil {
 		// On read error, reap the broken session.
 		s.reap(sessionKey)
+		return resp, err
+	}
+
+	// Write conversation turn to eidetic memory (background, non-blocking).
+	// Use original message (not enriched) to avoid storing recall prefixes.
+	if resp.Text != "" {
+		s.appendToEidetic(sessionKey, message, resp.Text)
 	}
 	return resp, err
 }

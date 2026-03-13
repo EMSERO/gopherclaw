@@ -383,9 +383,17 @@ func main() {
 			SystemPrompt: sysPrompt,
 			ExtraArgs:    cliCfg.ExtraArgs,
 			IdleTTL:      ttl,
+			Config:       cfg,
+			Workspace:    workspace,
 		})
 		if err != nil {
 			logger.Fatalf("claude-cli engine: %v", err)
+		}
+		if eideticClient != nil {
+			sca.SetEidetic(eideticClient)
+			if embedClient != nil {
+				sca.SetEmbeddings(embedClient)
+			}
 		}
 		defer sca.Close()
 		primaryAg = sca
