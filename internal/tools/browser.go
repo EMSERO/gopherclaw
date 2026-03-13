@@ -250,7 +250,6 @@ func (t *BrowserTool) SetViewport(ctx context.Context, sessionKey string, width,
 	if height <= 0 {
 		height = 900
 	}
-	ctx = context.WithValue(ctx, SessionKeyContextKey{}, sessionKey)
 	bCtx, err := t.Pool.getOrCreate(sessionKey)
 	if err != nil {
 		return
