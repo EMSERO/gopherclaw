@@ -303,7 +303,7 @@ func main() {
 	// Browser pool (optional)
 	var browserPool *tools.BrowserPool
 	if cfg.Tools.Browser.Enabled {
-		browserPool = tools.NewBrowserPool(cfg.Tools.Browser.IsHeadless(), cfg.Tools.Browser.ChromePath, cfg.Tools.Browser.NoSandbox)
+		browserPool = tools.NewBrowserPool(cfg.Tools.Browser.IsHeadless(), cfg.Tools.Browser.ChromePath, cfg.Tools.Browser.NoSandbox, cfg.Tools.Browser.Width, cfg.Tools.Browser.Height)
 		toolList = append(toolList, &tools.BrowserTool{Pool: browserPool})
 		logger.Infof("browser: enabled (headless=%v)", cfg.Tools.Browser.IsHeadless())
 	}

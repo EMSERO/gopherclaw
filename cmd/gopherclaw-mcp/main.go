@@ -87,6 +87,8 @@ func main() {
 			cfg.Tools.Browser.IsHeadless(),
 			cfg.Tools.Browser.ChromePath,
 			cfg.Tools.Browser.NoSandbox,
+			cfg.Tools.Browser.Width,
+			cfg.Tools.Browser.Height,
 		)
 		registerBrowserTools(s, pool)
 	}
@@ -159,6 +161,8 @@ func registerBrowserTools(s *server.MCPServer, pool *tools.BrowserPool) {
 		mcp.NewTool("browser_navigate",
 			mcp.WithDescription("Navigate the browser to a URL and return the page text"),
 			mcp.WithString("url", mcp.Required(), mcp.Description("The URL to navigate to")),
+			mcp.WithNumber("width", mcp.Description("Viewport width in pixels (optional, default 1280)")),
+			mcp.WithNumber("height", mcp.Description("Viewport height in pixels (optional, default 900)")),
 		),
 		browserHandler(pool, sessionKey, "navigate"),
 	)
@@ -167,6 +171,8 @@ func registerBrowserTools(s *server.MCPServer, pool *tools.BrowserPool) {
 	s.AddTool(
 		mcp.NewTool("browser_screenshot",
 			mcp.WithDescription("Take a screenshot of the current browser page. Returns a base64-encoded PNG."),
+			mcp.WithNumber("width", mcp.Description("Viewport width in pixels (optional, default 1280)")),
+			mcp.WithNumber("height", mcp.Description("Viewport height in pixels (optional, default 900)")),
 		),
 		browserHandler(pool, sessionKey, "screenshot"),
 	)
@@ -250,8 +256,26 @@ func browserHandler(pool *tools.BrowserPool, sessionKey, action string) server.T
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		logf("tool call: browser_%s", action)
 
-		// Screenshot: use CaptureScreenshot directly to return a proper image content block.
+		// Build args for Run().
+		args := make(map[string]any)
+		args["action"] = action
+		if params, ok := request.Params.Arguments.(map[string]any); ok {
+			for k, v := range params {
+				args[k] = v
+			}
+		}
+		argsJSON, _ := json.Marshal(args)
+
+		// Inject session key into context for browser pool.
+		ctx = context.WithValue(ctx, tools.SessionKeyContextKey{}, sessionKey)
+
+		// Screenshot: apply viewport override if requested, then capture image.
 		if action == "screenshot" {
+			w, _ := args["width"].(float64)
+			h, _ := args["height"].(float64)
+			if w > 0 || h > 0 {
+				bt.SetViewport(ctx, sessionKey, int(w), int(h))
+			}
 			buf, pageURL, err := bt.CaptureScreenshot(ctx, sessionKey)
 			if err != nil {
 				return mcp.NewToolResultError(fmt.Sprintf("error: screenshot: %v", err)), nil
@@ -263,20 +287,6 @@ func browserHandler(pool *tools.BrowserPool, sessionKey, action string) server.T
 			}
 			return &mcp.CallToolResult{Content: content}, nil
 		}
-
-		// All other actions: delegate to Run().
-		args := make(map[string]any)
-		args["action"] = action
-
-		if params, ok := request.Params.Arguments.(map[string]any); ok {
-			for k, v := range params {
-				args[k] = v
-			}
-		}
-		argsJSON, _ := json.Marshal(args)
-
-		// Inject session key into context for browser pool.
-		ctx = context.WithValue(ctx, tools.SessionKeyContextKey{}, sessionKey)
 
 		result := bt.Run(ctx, string(argsJSON))
 

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 
@@ -48,6 +49,8 @@ type BrowserPool struct {
 	chromePath  string
 	noSandbox   bool // if true, launch Chrome with --no-sandbox (required in some containers)
 	maxSessions int  // hard cap on concurrent browser sessions (0 = 10)
+	width       int  // viewport width (default 1280)
+	height      int  // viewport height (default 900)
 	done        chan struct{}
 	wg          sync.WaitGroup
 }
@@ -61,12 +64,20 @@ type browserSession struct {
 // NewBrowserPool creates a pool with the given settings.
 // If noSandbox is true, Chrome is launched with --no-sandbox (needed inside
 // Docker containers that run as root). Prefer false when possible.
-func NewBrowserPool(headless bool, chromePath string, noSandbox bool) *BrowserPool {
+func NewBrowserPool(headless bool, chromePath string, noSandbox bool, width, height int) *BrowserPool {
+	if width <= 0 {
+		width = 1280
+	}
+	if height <= 0 {
+		height = 900
+	}
 	p := &BrowserPool{
 		sessions:   make(map[string]*browserSession),
 		headless:   headless,
 		chromePath: chromePath,
 		noSandbox:  noSandbox,
+		width:      width,
+		height:     height,
 		done:       make(chan struct{}),
 	}
 	p.wg.Add(1)
@@ -138,6 +149,7 @@ func (p *BrowserPool) getOrCreate(sessionKey string) (context.Context, error) {
 	opts = append(opts,
 		chromedp.DisableGPU,
 		chromedp.Flag("disable-dev-shm-usage", true),
+		chromedp.WindowSize(p.width, p.height),
 	)
 
 	allocCtx, allocCancel := chromedp.NewExecAllocator(context.Background(), opts...)
@@ -196,6 +208,8 @@ type browserInput struct {
 	JS        string `json:"js,omitempty"`
 	Limit     int    `json:"limit,omitempty"`     // max elements for scrape (default 50)
 	TextLimit int    `json:"textLimit,omitempty"` // max chars per text/html for scrape (default 200)
+	Width     int    `json:"width,omitempty"`     // viewport width override (per-call)
+	Height    int    `json:"height,omitempty"`    // viewport height override (per-call)
 }
 
 // captureScreenshot captures a PNG screenshot from the given browser context.
@@ -226,6 +240,24 @@ func (t *BrowserTool) CaptureScreenshot(ctx context.Context, sessionKey string) 
 		return nil, url, err
 	}
 	return buf, url, nil
+}
+
+// SetViewport overrides the browser viewport size for the given session.
+func (t *BrowserTool) SetViewport(ctx context.Context, sessionKey string, width, height int) {
+	if width <= 0 {
+		width = 1280
+	}
+	if height <= 0 {
+		height = 900
+	}
+	ctx = context.WithValue(ctx, SessionKeyContextKey{}, sessionKey)
+	bCtx, err := t.Pool.getOrCreate(sessionKey)
+	if err != nil {
+		return
+	}
+	_ = chromedp.Run(bCtx, chromedp.ActionFunc(func(ctx context.Context) error {
+		return emulation.SetDeviceMetricsOverride(int64(width), int64(height), 1.0, false).Do(ctx)
+	}))
 }
 
 func (t *BrowserTool) Name() string { return "browser" }
@@ -270,6 +302,23 @@ func (t *BrowserTool) Run(ctx context.Context, argsJSON string) string {
 	bCtx, err := t.Pool.getOrCreate(sessionKey)
 	if err != nil {
 		return fmt.Sprintf("error: create browser: %v", err)
+	}
+
+	// Per-call viewport override via DevTools emulation.
+	if in.Width > 0 || in.Height > 0 {
+		w := int64(in.Width)
+		h := int64(in.Height)
+		if w <= 0 {
+			w = 1280
+		}
+		if h <= 0 {
+			h = 900
+		}
+		if err := chromedp.Run(bCtx, chromedp.ActionFunc(func(ctx context.Context) error {
+			return emulation.SetDeviceMetricsOverride(w, h, 1.0, false).Do(ctx)
+		})); err != nil {
+			blogf("viewport override failed: %v", err)
+		}
 	}
 
 	// Timeout safety: if an action hangs, close the session after 60s.

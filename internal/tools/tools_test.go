@@ -733,7 +733,7 @@ func TestBrowserPoolCloseAll(t *testing.T) {
 }
 
 func TestNewBrowserPool(t *testing.T) {
-	pool := NewBrowserPool(true, "", false)
+	pool := NewBrowserPool(true, "", false, 0, 0)
 	if pool == nil {
 		t.Fatal("expected non-nil pool")
 	}
@@ -1154,7 +1154,7 @@ func TestBrowserPoolCloseExistingSession(t *testing.T) {
 }
 
 func TestBrowserPoolCloseAllWithSessions(t *testing.T) {
-	pool := NewBrowserPool(true, "/fake/chrome", false)
+	pool := NewBrowserPool(true, "/fake/chrome", false, 0, 0)
 	if pool.chromePath != "/fake/chrome" {
 		t.Errorf("expected chromePath '/fake/chrome', got %q", pool.chromePath)
 	}
@@ -1260,7 +1260,7 @@ func TestExecToolDescription(t *testing.T) {
 }
 
 func TestBrowserToolDescription(t *testing.T) {
-	pool := NewBrowserPool(true, "", false)
+	pool := NewBrowserPool(true, "", false, 0, 0)
 	defer pool.CloseAll()
 	tool := &BrowserTool{Pool: pool}
 	desc := tool.Description()

@@ -270,6 +270,8 @@ type BrowserConfig struct {
 	Headless   *bool  `json:"headless"`   // nil = default true when Enabled
 	ChromePath string `json:"chromePath"` // empty = auto-detect
 	NoSandbox  bool   `json:"noSandbox"`  // launch Chrome with --no-sandbox (required in some containers)
+	Width      int    `json:"width"`      // viewport width (default 1280)
+	Height     int    `json:"height"`     // viewport height (default 900)
 }
 
 // IsHeadless returns true if headless mode is enabled (default: true).
