@@ -48,6 +48,13 @@ type Agent struct {
 	// Concurrency limiter (nil if maxConcurrent <= 0)
 	sem chan struct{}
 
+	// Per-session serialization: prevents concurrent chatImpl calls on the
+	// same session from interleaving GetHistory/AppendMessages, which causes
+	// out-of-order messages (e.g. background task results interleaving with
+	// user messages).
+	sessionMu   sync.Mutex               // protects sessionLocks map
+	sessionLocks map[string]*sessionLock  // sessionKey → lock
+
 	// System prompt caching
 	sysPromptStatic string     // identity + skills + workspace + subagents (built once)
 	memoryMu        sync.Mutex // protects memoryCache and memoryMtime
@@ -85,17 +92,18 @@ func New(
 	toolList []Tool,
 ) *Agent {
 	a := &Agent{
-		cfg:        cfg,
-		def:        def,
-		router:     router,
-		sessions:   sessions,
-		skills:     skillList,
-		wsMDs:      wsMDs,
-		workspace:  workspace,
-		logger:     logger,
-		toolMap:    make(map[string]Tool),
-		Usage:      NewUsageTracker(),
-		eideticSem: make(chan struct{}, 8), // limit concurrent background eidetic writes
+		cfg:          cfg,
+		def:          def,
+		router:       router,
+		sessions:     sessions,
+		skills:       skillList,
+		wsMDs:        wsMDs,
+		workspace:    workspace,
+		logger:       logger,
+		toolMap:      make(map[string]Tool),
+		Usage:        NewUsageTracker(),
+		eideticSem:   make(chan struct{}, 8), // limit concurrent background eidetic writes
+		sessionLocks: make(map[string]*sessionLock),
 	}
 	for _, t := range toolList {
 		a.toolMap[t.Name()] = t
@@ -144,6 +152,41 @@ type ResponseUsage = agentapi.ResponseUsage
 // ModelClient is the interface for making model API calls (used for soft trim summarization).
 type ModelClient interface {
 	Chat(ctx context.Context, req openai.ChatCompletionRequest) (openai.ChatCompletionResponse, error)
+}
+
+// sessionLock is a reference-counted mutex for serializing chatImpl calls on
+// the same session key. The refcount tracks how many goroutines are waiting or
+// holding the lock so the entry can be cleaned up when no longer needed.
+type sessionLock struct {
+	mu       sync.Mutex
+	refcount int
+}
+
+// acquireSessionLock returns a per-session mutex, creating it if needed.
+// The caller must call releaseSessionLock when done (after unlocking the mutex).
+func (a *Agent) acquireSessionLock(key string) *sessionLock {
+	a.sessionMu.Lock()
+	sl, ok := a.sessionLocks[key]
+	if !ok {
+		sl = &sessionLock{}
+		a.sessionLocks[key] = sl
+	}
+	sl.refcount++
+	a.sessionMu.Unlock()
+	sl.mu.Lock()
+	return sl
+}
+
+// releaseSessionLock unlocks the per-session mutex and removes it if no other
+// goroutines are waiting.
+func (a *Agent) releaseSessionLock(key string, sl *sessionLock) {
+	sl.mu.Unlock()
+	a.sessionMu.Lock()
+	sl.refcount--
+	if sl.refcount == 0 {
+		delete(a.sessionLocks, key)
+	}
+	a.sessionMu.Unlock()
 }
 
 // loopDetector tracks consecutive identical tool calls.
@@ -523,6 +566,14 @@ func (a *Agent) chatImpl(ctx context.Context, sessionKey, userText string, opts 
 	}
 	defer a.releaseSem()
 
+	// Serialize concurrent chatImpl calls on the same session key.
+	// Without this, a background task completing while the user is mid-conversation
+	// can interleave its GetHistory/AppendMessages with the user's, causing
+	// out-of-order messages and the "chat sync" bug where responses attach to
+	// wrong messages.
+	sl := a.acquireSessionLock(sessionKey)
+	defer a.releaseSessionLock(sessionKey, sl)
+
 	ctx = context.WithValue(ctx, agentapi.SessionKeyContextKey{}, sessionKey)
 
 	history, err := a.sessions.GetHistory(sessionKey)
@@ -584,6 +635,10 @@ func (a *Agent) ChatWithImages(ctx context.Context, sessionKey, userText string,
 		return Response{}, fmt.Errorf("max concurrent requests exceeded: %w", err)
 	}
 	defer a.releaseSem()
+
+	// Serialize concurrent calls on the same session (same rationale as chatImpl).
+	sl := a.acquireSessionLock(sessionKey)
+	defer a.releaseSessionLock(sessionKey, sl)
 
 	ctx = context.WithValue(ctx, agentapi.SessionKeyContextKey{}, sessionKey)
 
