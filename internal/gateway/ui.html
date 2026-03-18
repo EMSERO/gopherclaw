@@ -166,6 +166,7 @@
   <button onclick="switchTab('usage')">Usage</button>
   <button onclick="switchTab('config')">Config</button>
   <button onclick="switchTab('logs')">Logs</button>
+  <button onclick="switchTab('surfaces')" id="surfacesTabBtn">Surfaces</button>
   <div class="spacer"></div>
   <button class="tab-bar-token" onclick="promptToken()" id="tokenBtn" style="background:none;border:none;color:#8b949e;font-size:0.7em;cursor:pointer;padding:10px 8px;font-family:inherit" title="Set auth token"></button>
   <span style="align-self:center;color:#8b949e;font-size:0.75em" id="connText">connecting...</span>
@@ -350,6 +351,25 @@
   <div class="log-container" id="logContainer"></div>
 </div>
 
+<!-- Surfaces Tab -->
+<div class="tab-content" id="tab-surfaces">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+    <div style="display:flex;gap:8px;align-items:center">
+      <span class="label" style="margin:0">Filter:</span>
+      <select id="surfaceStatusFilter" onchange="loadSurfaces()" style="background:#161b22;border:1px solid #30363d;color:#c9d1d9;padding:4px 8px;border-radius:4px;font-family:inherit;font-size:0.85em">
+        <option value="">All</option>
+        <option value="active" selected>Active</option>
+        <option value="dismissed">Dismissed</option>
+        <option value="answered">Answered</option>
+        <option value="expired">Expired</option>
+        <option value="acted">Acted</option>
+      </select>
+    </div>
+    <button class="btn btn-sm" onclick="loadSurfaces()">Refresh</button>
+  </div>
+  <div id="surfacesFeed"></div>
+</div>
+
 <script>
 // --- Globals ---
 const basePath = window.location.pathname.replace(/\/$/, '');
@@ -389,6 +409,7 @@ function switchTab(name) {
   if (name === 'usage') loadUsage();
   if (name === 'logs') startLogStream();
   if (name !== 'logs') stopLogStream();
+  if (name === 'surfaces') loadSurfaces();
 }
 
 // --- WebSocket for dashboard status ---
@@ -413,6 +434,7 @@ function connectWS() {
   ws.onmessage = (e) => {
     wsData = JSON.parse(e.data);
     renderDashboard(wsData);
+    updateSurfacesBadge(wsData);
   };
 }
 
@@ -1099,6 +1121,165 @@ function updateTokenBtn() {
   const btn = document.getElementById('tokenBtn');
   btn.textContent = token ? 'token: ****' + token.slice(-4) : 'set token';
   btn.style.color = token ? '#3fb950' : '#d29922';
+}
+
+// --- Surfaces ---
+function apiFetch(path, opts) {
+  const o = opts || {};
+  o.headers = Object.assign({}, authHeaders, o.headers || {});
+  return fetch(basePath + path, o).then(r => { if (!r.ok) throw new Error(r.status); return r.json(); });
+}
+const surfaceTypeIcons = { insight: '💡', question: '❓', warning: '⚠️', reminder: '⏰', connection: '🔗' };
+const surfaceTypeColors = { insight: '#58a6ff', question: '#d29922', warning: '#f85149', reminder: '#bc8cff', connection: '#3fb950' };
+
+function loadSurfaces() {
+  const status = document.getElementById('surfaceStatusFilter').value;
+  const params = status ? '?status=' + status : '';
+  apiFetch('/api/surfaces' + params).then(data => {
+    const feed = document.getElementById('surfacesFeed');
+    if (!data || data.length === 0) {
+      feed.innerHTML = '<div class="empty">No surfaces found</div>';
+      return;
+    }
+    feed.innerHTML = data.map(s => renderSurfaceCard(s)).join('');
+  }).catch(() => {
+    document.getElementById('surfacesFeed').innerHTML = '<div class="empty">Failed to load surfaces</div>';
+  });
+}
+
+function renderSurfaceCard(s) {
+  const icon = surfaceTypeIcons[s.surface_type] || '📌';
+  const color = surfaceTypeColors[s.surface_type] || '#8b949e';
+  const age = timeAgo(new Date(s.created_at));
+  const tags = (s.tags || []).map(t => '<span class="badge badge-blue" style="margin-right:4px">' + escapeHtml(t) + '</span>').join('');
+  const priorityBadge = s.priority <= 2 ? '<span class="badge badge-red">P' + s.priority + '</span>' : '<span class="badge" style="background:#21262d;color:#8b949e">P' + s.priority + '</span>';
+
+  let actions = '';
+  if (s.status === 'active') {
+    actions += '<button class="btn btn-sm" onclick="dismissSurface(\'' + s.id + '\')">Dismiss</button>';
+    actions += '<button class="btn btn-sm" onclick="actSurface(\'' + s.id + '\')">Mark Acted</button>';
+    if (s.surface_type === 'question') {
+      actions += '<button class="btn btn-sm btn-primary" onclick="showRespondForm(\'' + s.id + '\')">Respond</button>';
+    }
+    actions += '<button class="btn btn-sm" onclick="showChatForm(\'' + s.id + '\')">Chat</button>';
+  }
+
+  let responseHtml = '';
+  if (s.user_response) {
+    responseHtml = '<div style="margin-top:8px;padding:8px;background:#0d2818;border-radius:4px;font-size:0.85em"><strong style="color:#3fb950">Answer:</strong> ' + escapeHtml(s.user_response) + '</div>';
+  }
+
+  return '<div class="card" id="surface-' + s.id + '">' +
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">' +
+      '<div style="flex:1">' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+          '<span style="font-size:1.1em">' + icon + '</span>' +
+          '<span style="color:' + color + ';font-size:0.8em;text-transform:uppercase">' + escapeHtml(s.surface_type) + '</span>' +
+          priorityBadge +
+          '<span class="badge badge-' + (s.status === 'active' ? 'green' : 'yellow') + '">' + escapeHtml(s.status) + '</span>' +
+          '<span style="color:#484f58;font-size:0.75em">' + age + '</span>' +
+        '</div>' +
+        '<div style="font-size:0.92em;line-height:1.5">' + escapeHtml(s.content) + '</div>' +
+        (tags ? '<div style="margin-top:6px">' + tags + '</div>' : '') +
+        responseHtml +
+      '</div>' +
+    '</div>' +
+    (actions ? '<div style="display:flex;gap:6px;margin-top:10px">' + actions + '</div>' : '') +
+    '<div id="surface-respond-' + s.id + '" style="display:none;margin-top:8px"></div>' +
+    '<div id="surface-chat-' + s.id + '" style="display:none;margin-top:8px"></div>' +
+  '</div>';
+}
+
+function timeAgo(date) {
+  const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (seconds < 60) return seconds + 's ago';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return minutes + 'm ago';
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return hours + 'h ago';
+  return Math.floor(hours / 24) + 'd ago';
+}
+
+function dismissSurface(id) {
+  apiFetch('/api/surfaces/' + id, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status:'dismissed'}) })
+    .then(() => { showToast('Surface dismissed'); loadSurfaces(); });
+}
+
+function actSurface(id) {
+  apiFetch('/api/surfaces/' + id, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status:'acted'}) })
+    .then(() => { showToast('Surface marked acted'); loadSurfaces(); });
+}
+
+function showRespondForm(id) {
+  const el = document.getElementById('surface-respond-' + id);
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = '<textarea id="respond-input-' + id + '" rows="2" style="width:100%;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:8px;border-radius:4px;font-family:inherit;font-size:0.85em;resize:vertical" placeholder="Your answer..."></textarea>' +
+    '<button class="btn btn-primary btn-sm" style="margin-top:6px" onclick="submitRespond(\'' + id + '\')">Submit</button>';
+}
+
+function submitRespond(id) {
+  const text = document.getElementById('respond-input-' + id).value.trim();
+  if (!text) return;
+  apiFetch('/api/surfaces/' + id + '/respond', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({response: text}) })
+    .then(() => { showToast('Response saved'); loadSurfaces(); });
+}
+
+function showChatForm(id) {
+  const el = document.getElementById('surface-chat-' + id);
+  if (el.style.display !== 'none') { el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  el.innerHTML = '<div id="surface-chat-messages-' + id + '" style="max-height:200px;overflow-y:auto;margin-bottom:8px"></div>' +
+    '<div style="display:flex;gap:6px"><input type="text" id="surface-chat-input-' + id + '" style="flex:1;background:#0d1117;border:1px solid #30363d;color:#c9d1d9;padding:6px 8px;border-radius:4px;font-family:inherit;font-size:0.85em" placeholder="Ask about this surface..." onkeydown="if(event.key===\'Enter\')sendSurfaceChat(\'' + id + '\')">' +
+    '<button class="btn btn-primary btn-sm" onclick="sendSurfaceChat(\'' + id + '\')">Send</button></div>';
+  // Load existing messages
+  apiFetch('/api/surfaces/' + id + '/messages').then(msgs => {
+    const container = document.getElementById('surface-chat-messages-' + id);
+    if (msgs && msgs.length > 0) {
+      container.innerHTML = msgs.map(m => '<div class="chat-msg ' + m.role + '" style="font-size:0.82em;padding:6px 10px;margin-bottom:4px">' + escapeHtml(m.content) + '</div>').join('');
+      container.scrollTop = container.scrollHeight;
+    }
+  });
+}
+
+function sendSurfaceChat(id) {
+  const input = document.getElementById('surface-chat-input-' + id);
+  const text = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  const container = document.getElementById('surface-chat-messages-' + id);
+  container.innerHTML += '<div class="chat-msg user" style="font-size:0.82em;padding:6px 10px;margin-bottom:4px">' + escapeHtml(text) + '</div>';
+  container.innerHTML += '<div class="chat-msg assistant" style="font-size:0.82em;padding:6px 10px;margin-bottom:4px;color:#484f58">Thinking...</div>';
+  container.scrollTop = container.scrollHeight;
+
+  apiFetch('/api/surfaces/' + id + '/chat', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({message: text}) })
+    .then(data => {
+      // Remove the "Thinking..." placeholder and show real response
+      const msgs = container.querySelectorAll('.chat-msg');
+      if (msgs.length > 0) msgs[msgs.length - 1].remove();
+      container.innerHTML += '<div class="chat-msg assistant" style="font-size:0.82em;padding:6px 10px;margin-bottom:4px">' + escapeHtml(data.assistant_message.content) + '</div>';
+      container.scrollTop = container.scrollHeight;
+    })
+    .catch(() => {
+      const msgs = container.querySelectorAll('.chat-msg');
+      if (msgs.length > 0) msgs[msgs.length - 1].textContent = 'Error getting response';
+    });
+}
+
+// Update surfaces badge in tab bar from WS data
+function updateSurfacesBadge(d) {
+  const btn = document.getElementById('surfacesTabBtn');
+  if (d.surfaces && d.surfaces.active > 0) {
+    btn.textContent = 'Surfaces (' + d.surfaces.active + ')';
+  } else {
+    btn.textContent = 'Surfaces';
+  }
+  // Hide tab entirely if surfaces not enabled
+  if (!d.surfaces) {
+    btn.style.display = 'none';
+  } else {
+    btn.style.display = '';
+  }
 }
 
 // --- Init ---

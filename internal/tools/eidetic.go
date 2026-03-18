@@ -119,6 +119,7 @@ type EideticAppendTool struct {
 	Client     eidetic.Client
 	Embeddings *embeddings.Client // optional: generates embedding vector on store
 	AgentID    string             // default agent_id for writes
+	OnAppend   func()            // called after successful append; optional
 }
 
 type eideticAppendInput struct {
@@ -181,6 +182,9 @@ func (t *EideticAppendTool) Run(ctx context.Context, argsJSON string) string {
 	})
 	if err != nil {
 		return fmt.Sprintf("error: failed to store memory: %v", err)
+	}
+	if t.OnAppend != nil {
+		t.OnAppend()
 	}
 	return "Memory stored successfully."
 }

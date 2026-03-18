@@ -23,9 +23,31 @@ type Root struct {
 	TaskQueue TaskQueueConfig            `json:"taskQueue"`
 	Update    UpdateConfig               `json:"update"`
 	Eidetic   EideticConfig              `json:"eidetic"`
+	Surfaces  SurfacesConfig             `json:"surfaces"`
 
 	// Path is the filesystem path this config was loaded from (not serialized).
 	Path string `json:"-"`
+}
+
+// SurfacesConfig controls the ambient surfaces system (ported from AgenticMe).
+// When Enabled is false (the default) no Postgres connection is made and the
+// surfaces/reasoning subsystems are fully disabled.
+type SurfacesConfig struct {
+	Enabled  bool             `json:"enabled"`
+	Postgres PostgresConfig   `json:"postgres"`
+	Reasoning ReasoningConfig `json:"reasoning"`
+}
+
+// PostgresConfig holds the connection string for the surfaces database.
+type PostgresConfig struct {
+	DSN string `json:"dsn"` // e.g. "postgres://eidetic:eidetic@localhost:5432/eidetic"
+}
+
+// ReasoningConfig controls the periodic reasoning loop that creates/expires surfaces.
+type ReasoningConfig struct {
+	Enabled    bool   `json:"enabled"`    // run reasoning cycles (default true when surfaces enabled)
+	IntervalS  string `json:"interval"`   // duration string, e.g. "3m" (default "3m")
+	Model      string `json:"model"`      // optional model override for reasoning turns
 }
 
 // EideticConfig controls the optional Eidetic memory sidecar integration.

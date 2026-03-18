@@ -17,6 +17,7 @@ import (
 	"github.com/EMSERO/gopherclaw/internal/config"
 	"github.com/EMSERO/gopherclaw/internal/cron"
 	"github.com/EMSERO/gopherclaw/internal/session"
+	"github.com/EMSERO/gopherclaw/internal/surfaces"
 	"github.com/EMSERO/gopherclaw/internal/taskqueue"
 )
 
@@ -61,6 +62,8 @@ type Server struct {
 	version        string                  // current binary version
 	skillLister    SkillLister             // optional skill list provider
 	skillToggler   SkillToggler            // optional skill toggle
+	surfaceHandler *surfaces.Handler       // optional surfaces handler (nil when disabled)
+	surfaceStore   *surfaces.Store         // optional surfaces store (nil when disabled)
 	http           *http.Server
 }
 
@@ -156,6 +159,14 @@ func New(logger *zap.SugaredLogger, cfg *config.Root, ag agent.PrimaryAgent, ses
 			// Notify API (for MCP server and external integrations)
 			r.Post(base+"/api/notify", s.handleNotify)
 
+			// Surfaces API
+			r.Get(base+"/api/surfaces", s.handleSurfaceList)
+			r.Get(base+"/api/surfaces/{id}", s.handleSurfaceGet)
+			r.Patch(base+"/api/surfaces/{id}", s.handleSurfaceUpdate)
+			r.Post(base+"/api/surfaces/{id}/respond", s.handleSurfaceRespond)
+			r.Post(base+"/api/surfaces/{id}/chat", s.handleSurfaceChat)
+			r.Get(base+"/api/surfaces/{id}/messages", s.handleSurfaceMessages)
+
 			// System event endpoint
 			r.Post(base+"/system/event", s.handleSystemEvent)
 		}
@@ -184,6 +195,12 @@ func (s *Server) SetVersion(v string) { s.version = v }
 func (s *Server) SetSkillManager(lister SkillLister, toggler SkillToggler) {
 	s.skillLister = lister
 	s.skillToggler = toggler
+}
+
+// SetSurfaces registers the surfaces handler and store for the dashboard.
+func (s *Server) SetSurfaces(handler *surfaces.Handler, store *surfaces.Store) {
+	s.surfaceHandler = handler
+	s.surfaceStore = store
 }
 
 // Start begins listening (blocks until context cancelled or error).

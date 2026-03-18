@@ -197,6 +197,14 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			latestVer = state.LastAvailableVersion
 		}
 
+		// Surfaces summary
+		var surfacesSummary map[string]any
+		if s.surfaceStore != nil {
+			if count, err := s.surfaceStore.ActiveCount(r.Context()); err == nil {
+				surfacesSummary = map[string]any{"active": count, "enabled": true}
+			}
+		}
+
 		status := map[string]any{
 			"status":    "running",
 			"version":   s.version,
@@ -211,6 +219,7 @@ func (s *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 			"cron":      cronSummary,
 			"tasks":     taskSummary,
 			"skills":    skillsSummary,
+			"surfaces":  surfacesSummary,
 			"timestamp": time.Now().Unix(),
 		}
 		data, _ := json.Marshal(status)

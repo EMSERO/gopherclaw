@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
 	"golang.org/x/sync/errgroup"
 
 	"go.uber.org/zap"
@@ -26,6 +27,8 @@ import (
 	"github.com/EMSERO/gopherclaw/internal/embeddings"
 	"github.com/EMSERO/gopherclaw/internal/gateway"
 	"github.com/EMSERO/gopherclaw/internal/heartbeat"
+	"github.com/EMSERO/gopherclaw/internal/reasoning"
+	"github.com/EMSERO/gopherclaw/internal/surfaces"
 	"github.com/EMSERO/gopherclaw/internal/hooks"
 	"github.com/EMSERO/gopherclaw/internal/initialize"
 	"github.com/EMSERO/gopherclaw/internal/migrate"
@@ -362,6 +365,13 @@ func main() {
 		healthCancel()
 	}
 
+	// Surface create tool (conditionally added; Store wired later when surfaces init)
+	var surfaceCreateTool *tools.SurfaceCreateTool
+	if cfg.Surfaces.Enabled {
+		surfaceCreateTool = &tools.SurfaceCreateTool{Logger: logger.Named("tools.surface")}
+		toolList = append(toolList, surfaceCreateTool)
+	}
+
 	// Build agent registry (subagents, delegate tool, orchestrators)
 	ag, delegateTool, dispatchTools := buildAgents(logger, cfg, agentDef, router, sessionMgr, skillList, wsMDs, workspace, toolList, eideticClient, embedClient, hookBus)
 
@@ -488,6 +498,45 @@ func main() {
 		},
 	)
 
+	// Surfaces + reasoning loop (optional, requires Postgres)
+	var reasoningLoop *reasoning.Loop
+	if cfg.Surfaces.Enabled {
+		dsn := cfg.Surfaces.Postgres.DSN
+		if dsn == "" {
+			logger.Fatalf("surfaces: enabled but no postgres.dsn configured")
+		}
+		pgPool, err := pgxpool.New(ctx, dsn)
+		if err != nil {
+			logger.Fatalf("surfaces: postgres connect: %v", err)
+		}
+		defer pgPool.Close()
+		if err := pgPool.Ping(ctx); err != nil {
+			logger.Fatalf("surfaces: postgres ping: %v", err)
+		}
+
+		surfaceStore := surfaces.NewStore(pgPool, eideticClient, logger.Named("surfaces"))
+		if err := surfaceStore.Migrate(ctx); err != nil {
+			logger.Fatalf("surfaces: migration: %v", err)
+		}
+		surfaceHandler := surfaces.NewHandler(surfaceStore, primaryAg, logger.Named("surfaces"))
+		gw.SetSurfaces(surfaceHandler, surfaceStore)
+		if surfaceCreateTool != nil {
+			surfaceCreateTool.Store = surfaceStore
+		}
+		logger.Infof("surfaces: enabled (postgres=%s)", dsn)
+
+		if cfg.Surfaces.Reasoning.Enabled {
+			interval := 3 * time.Minute
+			if cfg.Surfaces.Reasoning.IntervalS != "" {
+				if parsed, err := time.ParseDuration(cfg.Surfaces.Reasoning.IntervalS); err == nil {
+					interval = parsed
+				}
+			}
+			reasoningLoop = reasoning.New(interval, primaryAg, eideticClient, surfaceStore, logger.Named("reasoning"))
+			surfaceStore.OnEideticWrite = reasoningLoop.Trigger
+		}
+	}
+
 	// Channel bots — created and registered with gateway/confirmMgr
 	bots := initChannelBots(logger, cfg, primaryAg, sessionMgr, cronMgr, confirmMgr, gw)
 	tgBot, dcBot, slBot := bots.tg, bots.dc, bots.sl
@@ -503,6 +552,39 @@ func main() {
 
 	// Wire channel bots as deliverers and announcers
 	wireDeliverers(tgBot, dcBot, slBot, cronMgr, taskMgr, skillMgr, version, startTime, delegateTool, dispatchTools, notifyTool)
+
+	// Wire reasoning loop: triggers from Eidetic writes + deliverers for high-priority surfaces
+	if reasoningLoop != nil {
+		if tgBot != nil {
+			reasoningLoop.AddDeliverer(tgBot)
+		}
+		if dcBot != nil {
+			reasoningLoop.AddDeliverer(dcBot)
+		}
+		if slBot != nil {
+			reasoningLoop.AddDeliverer(slBot)
+		}
+		// Trigger reasoning when Eidetic entries are appended
+		for _, t := range toolList {
+			if eat, ok := t.(*tools.EideticAppendTool); ok {
+				eat.OnAppend = reasoningLoop.Trigger
+				break
+			}
+		}
+	}
+
+	// Wire deliverers to surface create tool for high-priority broadcast
+	if surfaceCreateTool != nil {
+		if tgBot != nil {
+			surfaceCreateTool.Deliverers = append(surfaceCreateTool.Deliverers, tgBot)
+		}
+		if dcBot != nil {
+			surfaceCreateTool.Deliverers = append(surfaceCreateTool.Deliverers, dcBot)
+		}
+		if slBot != nil {
+			surfaceCreateTool.Deliverers = append(surfaceCreateTool.Deliverers, slBot)
+		}
+	}
 
 	// Deliver update notification to channel bots after startup (REQ-031).
 	// Uses a short delay to let bots connect first.
@@ -580,6 +662,11 @@ func main() {
 	// Heartbeat runner
 	if hbRunner != nil {
 		eg.Go(func() error { return hbRunner.Start(egCtx) })
+	}
+
+	// Reasoning loop (surfaces)
+	if reasoningLoop != nil {
+		eg.Go(func() error { reasoningLoop.Run(egCtx); return nil })
 	}
 
 	// Cron scheduler (after deliverers are wired)
