@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"go.uber.org/zap"
 
@@ -24,6 +25,7 @@ type surfaceCreateInput struct {
 	SurfaceType string   `json:"surface_type"`
 	Priority    int      `json:"priority"`
 	Tags        []string `json:"tags,omitempty"`
+	TriggerAt   string   `json:"trigger_at,omitempty"`
 }
 
 func (t *SurfaceCreateTool) Name() string { return "surface_create" }
@@ -58,6 +60,10 @@ func (t *SurfaceCreateTool) Schema() json.RawMessage {
 				"type": "array",
 				"items": {"type": "string"},
 				"description": "Optional tags for categorization"
+			},
+			"trigger_at": {
+				"type": "string",
+				"description": "RFC3339 timestamp for when a reminder should fire (e.g. 2026-03-19T09:00:00Z). Only used for reminder type."
 			}
 		},
 		"required": ["content", "surface_type", "priority"]
@@ -92,11 +98,19 @@ func (t *SurfaceCreateTool) Run(ctx context.Context, argsJSON string) string {
 		in.Priority = 5
 	}
 
+	var triggerAt *time.Time
+	if in.TriggerAt != "" {
+		if t, err := time.Parse(time.RFC3339, in.TriggerAt); err == nil {
+			triggerAt = &t
+		}
+	}
+
 	surf, err := t.Store.Create(ctx, surfaces.CreateRequest{
 		Content:     in.Content,
 		SurfaceType: surfaces.SurfaceType(in.SurfaceType),
 		Priority:    in.Priority,
 		Tags:        in.Tags,
+		TriggerAt:   triggerAt,
 	})
 	if err != nil {
 		return fmt.Sprintf("error: failed to create surface: %v", err)

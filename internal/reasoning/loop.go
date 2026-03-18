@@ -91,6 +91,9 @@ func (l *Loop) Run(ctx context.Context) {
 }
 
 func (l *Loop) cycle(ctx context.Context) {
+	// Promote due reminders before the main reasoning cycle.
+	l.promoteDueReminders(ctx)
+
 	cycleID := uuid.New()
 	l.logger.Infof("reasoning: cycle %s starting", cycleID)
 
@@ -159,6 +162,7 @@ func (l *Loop) cycle(ctx context.Context) {
 			Priority:       rs.Priority,
 			Tags:           rs.Tags,
 			ReasoningCycle: cycleID,
+			TriggerAt:      rs.ParseTriggerAt(),
 		})
 		if err != nil {
 			l.logger.Warnf("reasoning: create surface: %v", err)
@@ -176,6 +180,31 @@ func (l *Loop) cycle(ctx context.Context) {
 	}
 
 	l.logger.Infof("reasoning: cycle %s — expired %d, created %d surfaces", cycleID, expired, created)
+}
+
+// promoteDueReminders finds active surfaces whose trigger_at has passed
+// and broadcasts them to channel bots.
+func (l *Loop) promoteDueReminders(ctx context.Context) {
+	due, err := l.store.DueReminders(ctx)
+	if err != nil {
+		l.logger.Warnf("reasoning: check due reminders: %v", err)
+		return
+	}
+	for _, s := range due {
+		// Broadcast to channels regardless of original priority.
+		if len(l.deliverers) > 0 {
+			msg := formatSurfaceNotification(string(s.SurfaceType), s.Content)
+			for _, d := range l.deliverers {
+				d.SendToAllPaired(msg)
+			}
+		}
+		// Mark as acted so it doesn't fire again.
+		acted := surfaces.StatusActed
+		if _, err := l.store.Update(ctx, s.ID, surfaces.UpdateRequest{Status: &acted}); err != nil {
+			l.logger.Warnf("reasoning: mark reminder acted %s: %v", s.ID, err)
+		}
+		l.logger.Infof("reasoning: promoted due reminder %s", s.ID)
+	}
 }
 
 func formatSurfaceNotification(surfaceType, content string) string {

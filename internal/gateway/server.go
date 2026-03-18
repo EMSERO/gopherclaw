@@ -166,6 +166,7 @@ func New(logger *zap.SugaredLogger, cfg *config.Root, ag agent.PrimaryAgent, ses
 			r.Post(base+"/api/surfaces/{id}/respond", s.handleSurfaceRespond)
 			r.Post(base+"/api/surfaces/{id}/chat", s.handleSurfaceChat)
 			r.Get(base+"/api/surfaces/{id}/messages", s.handleSurfaceMessages)
+			r.Post(base+"/api/surfaces/{id}/execute", s.handleSurfaceExecute)
 
 			// System event endpoint
 			r.Post(base+"/system/event", s.handleSystemEvent)

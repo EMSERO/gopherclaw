@@ -78,7 +78,7 @@ Output a single JSON object with two fields:
 {
   "expire": ["<surface-id>", ...],
   "create": [
-    {"content": "...", "surface_type": "...", "priority": 1-5, "tags": [...]}
+    {"content": "...", "surface_type": "...", "priority": 1-5, "tags": [...], "trigger_at": "RFC3339 or omit"}
   ]
 }
 
@@ -99,6 +99,7 @@ Rules:
 - Maximum 5 new surfaces per cycle
 - Do NOT create surfaces that duplicate or closely overlap active surfaces
 - Do NOT recreate surfaces that the user recently dismissed, answered, or acted on
+- For reminders, set "trigger_at" to an RFC3339 timestamp when the reminder should fire (it will be delivered to the user's channels at that time). Omit trigger_at for non-time-sensitive surfaces.
 - Be concise — each surface content should be 1-3 sentences
 - Ask questions when you notice gaps or ambiguity in the data
 - Only create surfaces that provide genuine value right now

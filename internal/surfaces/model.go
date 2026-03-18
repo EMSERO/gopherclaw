@@ -40,6 +40,7 @@ type Surface struct {
 	UserResponse    *string       `json:"user_response,omitempty"`
 	RespondedAt     *time.Time    `json:"responded_at,omitempty"`
 	ReasoningCycle  *uuid.UUID    `json:"reasoning_cycle,omitempty"`
+	TriggerAt       *time.Time    `json:"trigger_at,omitempty"`
 	CreatedAt       time.Time     `json:"created_at"`
 	UpdatedAt       time.Time     `json:"updated_at"`
 	ExpiredAt       *time.Time    `json:"expired_at,omitempty"`
@@ -63,6 +64,7 @@ type CreateRequest struct {
 	RelatedEntryIDs []uuid.UUID `json:"related_entry_ids"`
 	Tags            []string    `json:"tags"`
 	ReasoningCycle  uuid.UUID   `json:"reasoning_cycle"`
+	TriggerAt       *time.Time  `json:"trigger_at,omitempty"`
 }
 
 // ChatMessage is one message in a surface conversation thread.

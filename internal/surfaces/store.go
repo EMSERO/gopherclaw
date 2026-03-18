@@ -50,8 +50,15 @@ func (s *Store) Migrate(ctx context.Context) error {
 			reasoning_cycle   UUID,
 			created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
 			updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-			expired_at        TIMESTAMPTZ
+			expired_at        TIMESTAMPTZ,
+			trigger_at        TIMESTAMPTZ
 		);
+
+		-- Add trigger_at column if missing (for existing installs).
+		ALTER TABLE agenticme_surfaces ADD COLUMN IF NOT EXISTS trigger_at TIMESTAMPTZ;
+		CREATE INDEX IF NOT EXISTS agenticme_surfaces_trigger_idx
+			ON agenticme_surfaces (trigger_at)
+			WHERE status = 'active' AND trigger_at IS NOT NULL;
 
 		CREATE INDEX IF NOT EXISTS agenticme_surfaces_active_idx
 			ON agenticme_surfaces (status, priority, created_at DESC)
@@ -101,12 +108,12 @@ func (s *Store) Create(ctx context.Context, req CreateRequest) (*Surface, error)
 	}
 	row := s.pool.QueryRow(ctx, `
 		INSERT INTO agenticme_surfaces
-			(content, surface_type, priority, related_entry_ids, tags, reasoning_cycle)
-		VALUES ($1, $2, $3, $4, $5, $6)
+			(content, surface_type, priority, related_entry_ids, tags, reasoning_cycle, trigger_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
 		RETURNING id, content, surface_type, priority, status,
 		          related_entry_ids, tags, user_response, responded_at,
-		          reasoning_cycle, created_at, updated_at, expired_at
-	`, req.Content, req.SurfaceType, req.Priority, req.RelatedEntryIDs, req.Tags, req.ReasoningCycle)
+		          reasoning_cycle, trigger_at, created_at, updated_at, expired_at
+	`, req.Content, req.SurfaceType, req.Priority, req.RelatedEntryIDs, req.Tags, req.ReasoningCycle, req.TriggerAt)
 	return scanSurface(row)
 }
 
@@ -139,7 +146,7 @@ func (s *Store) List(ctx context.Context, f ListFilter) ([]Surface, error) {
 	query := fmt.Sprintf(`
 		SELECT id, content, surface_type, priority, status,
 		       related_entry_ids, tags, user_response, responded_at,
-		       reasoning_cycle, created_at, updated_at, expired_at
+		       reasoning_cycle, trigger_at, created_at, updated_at, expired_at
 		FROM agenticme_surfaces
 		%s
 		ORDER BY priority ASC, created_at DESC
@@ -160,7 +167,7 @@ func (s *Store) Get(ctx context.Context, id uuid.UUID) (*Surface, error) {
 	row := s.pool.QueryRow(ctx, `
 		SELECT id, content, surface_type, priority, status,
 		       related_entry_ids, tags, user_response, responded_at,
-		       reasoning_cycle, created_at, updated_at, expired_at
+		       reasoning_cycle, trigger_at, created_at, updated_at, expired_at
 		FROM agenticme_surfaces
 		WHERE id = $1
 	`, id)
@@ -186,7 +193,7 @@ func (s *Store) Update(ctx context.Context, id uuid.UUID, req UpdateRequest) (*S
 		WHERE id = $2
 		RETURNING id, content, surface_type, priority, status,
 		          related_entry_ids, tags, user_response, responded_at,
-		          reasoning_cycle, created_at, updated_at, expired_at
+		          reasoning_cycle, trigger_at, created_at, updated_at, expired_at
 	`, *req.Status, id)
 
 	surf, err := scanSurface(row)
@@ -209,7 +216,7 @@ func (s *Store) Respond(ctx context.Context, id uuid.UUID, req RespondRequest) (
 		WHERE id = $3
 		RETURNING id, content, surface_type, priority, status,
 		          related_entry_ids, tags, user_response, responded_at,
-		          reasoning_cycle, created_at, updated_at, expired_at
+		          reasoning_cycle, trigger_at, created_at, updated_at, expired_at
 	`, req.Response, now, id)
 
 	surf, err := scanSurface(row)
@@ -308,6 +315,23 @@ func (s *Store) WriteConversationToEidetic(ctx context.Context, surf *Surface, m
 	return nil
 }
 
+// DueReminders returns active surfaces whose trigger_at has passed.
+func (s *Store) DueReminders(ctx context.Context) ([]Surface, error) {
+	rows, err := s.pool.Query(ctx, `
+		SELECT id, content, surface_type, priority, status,
+		       related_entry_ids, tags, user_response, responded_at,
+		       reasoning_cycle, trigger_at, created_at, updated_at, expired_at
+		FROM agenticme_surfaces
+		WHERE status = 'active' AND trigger_at IS NOT NULL AND trigger_at <= now()
+		ORDER BY trigger_at ASC
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("due reminders: %w", err)
+	}
+	defer rows.Close()
+	return scanSurfaces(rows)
+}
+
 // ActiveCount returns the number of active surfaces.
 func (s *Store) ActiveCount(ctx context.Context) (int, error) {
 	var count int
@@ -320,7 +344,7 @@ func scanSurface(row pgx.Row) (*Surface, error) {
 	err := row.Scan(
 		&surf.ID, &surf.Content, &surf.SurfaceType, &surf.Priority, &surf.Status,
 		&surf.RelatedEntryIDs, &surf.Tags, &surf.UserResponse, &surf.RespondedAt,
-		&surf.ReasoningCycle, &surf.CreatedAt, &surf.UpdatedAt, &surf.ExpiredAt,
+		&surf.ReasoningCycle, &surf.TriggerAt, &surf.CreatedAt, &surf.UpdatedAt, &surf.ExpiredAt,
 	)
 	if err != nil {
 		return nil, err
@@ -335,7 +359,7 @@ func scanSurfaces(rows pgx.Rows) ([]Surface, error) {
 		if err := rows.Scan(
 			&surf.ID, &surf.Content, &surf.SurfaceType, &surf.Priority, &surf.Status,
 			&surf.RelatedEntryIDs, &surf.Tags, &surf.UserResponse, &surf.RespondedAt,
-			&surf.ReasoningCycle, &surf.CreatedAt, &surf.UpdatedAt, &surf.ExpiredAt,
+			&surf.ReasoningCycle, &surf.TriggerAt, &surf.CreatedAt, &surf.UpdatedAt, &surf.ExpiredAt,
 		); err != nil {
 			return nil, fmt.Errorf("scan surface: %w", err)
 		}

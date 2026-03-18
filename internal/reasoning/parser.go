@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // CycleResponse is the top-level JSON shape Claude returns.
@@ -18,6 +19,19 @@ type RawSurface struct {
 	SurfaceType string   `json:"surface_type"`
 	Priority    int      `json:"priority"`
 	Tags        []string `json:"tags"`
+	TriggerAt   string   `json:"trigger_at,omitempty"` // RFC3339 timestamp for reminders
+}
+
+// ParseTriggerAt parses the trigger_at field as RFC3339. Returns nil if empty or invalid.
+func (r *RawSurface) ParseTriggerAt() *time.Time {
+	if r.TriggerAt == "" {
+		return nil
+	}
+	t, err := time.Parse(time.RFC3339, r.TriggerAt)
+	if err != nil {
+		return nil
+	}
+	return &t
 }
 
 var validTypes = map[string]bool{

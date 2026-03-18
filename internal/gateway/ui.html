@@ -1158,6 +1158,7 @@ function renderSurfaceCard(s) {
   if (s.status === 'active') {
     actions += '<button class="btn btn-sm" onclick="dismissSurface(\'' + s.id + '\')">Dismiss</button>';
     actions += '<button class="btn btn-sm" onclick="actSurface(\'' + s.id + '\')">Mark Acted</button>';
+    actions += '<button class="btn btn-sm btn-primary" onclick="executeSurface(\'' + s.id + '\')">Do it</button>';
     if (s.surface_type === 'question') {
       actions += '<button class="btn btn-sm btn-primary" onclick="showRespondForm(\'' + s.id + '\')">Respond</button>';
     }
@@ -1208,6 +1209,13 @@ function dismissSurface(id) {
 function actSurface(id) {
   apiFetch('/api/surfaces/' + id, { method: 'PATCH', headers: {'Content-Type':'application/json'}, body: JSON.stringify({status:'acted'}) })
     .then(() => { showToast('Surface marked acted'); loadSurfaces(); });
+}
+
+function executeSurface(id) {
+  apiFetch('/api/surfaces/' + id + '/execute', { method: 'POST' })
+    .then(r => r.json())
+    .then(data => { showToast('Task submitted: ' + data.task_id); loadSurfaces(); })
+    .catch(() => showToast('Failed to submit task'));
 }
 
 function showRespondForm(id) {
