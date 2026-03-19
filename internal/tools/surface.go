@@ -71,10 +71,6 @@ func (t *SurfaceCreateTool) Schema() json.RawMessage {
 }
 
 func (t *SurfaceCreateTool) Run(ctx context.Context, argsJSON string) string {
-	if t.Store == nil {
-		return "error: surfaces not enabled"
-	}
-
 	var in surfaceCreateInput
 	if err := json.Unmarshal([]byte(argsJSON), &in); err != nil {
 		return fmt.Sprintf("error: invalid input: %v", err)
@@ -89,6 +85,10 @@ func (t *SurfaceCreateTool) Run(ctx context.Context, argsJSON string) string {
 		surfaces.TypeReminder, surfaces.TypeConnection:
 	default:
 		return fmt.Sprintf("error: invalid surface_type %q", in.SurfaceType)
+	}
+
+	if t.Store == nil {
+		return "error: surfaces not enabled"
 	}
 
 	// Clamp priority.
