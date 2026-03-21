@@ -3,6 +3,7 @@ package reasoning
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,13 +17,15 @@ import (
 
 // Loop runs the periodic reasoning cycle.
 type Loop struct {
-	interval   time.Duration
-	agent      agent.PrimaryAgent
-	eidetic    eidetic.Client
-	store      *surfaces.Store
-	logger     *zap.SugaredLogger
-	triggerCh  chan struct{}            // external trigger for early cycle
-	deliverers []agentapi.Deliverer    // channel bots for high-priority notifications
+	interval         time.Duration
+	agent            agent.PrimaryAgent
+	eidetic          eidetic.Client
+	store            *surfaces.Store
+	logger           *zap.SugaredLogger
+	triggerCh        chan struct{}         // external trigger for early cycle
+	deliverers       []agentapi.Deliverer // channel bots for high-priority notifications
+	mu               sync.Mutex
+	consecutiveEmpty int // count of consecutive cycles with no expires and no creates
 }
 
 // New creates a reasoning Loop.
@@ -68,6 +71,7 @@ func (l *Loop) Run(ctx context.Context) {
 	defer ticker.Stop()
 
 	var debounceCh <-chan time.Time // nil until a trigger arrives
+	ticksSinceLastCycle := 0        // tracks skipped ticks for backoff
 	for {
 		select {
 		case <-ctx.Done():
@@ -75,6 +79,13 @@ func (l *Loop) Run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			debounceCh = nil // cancel any pending debounce
+			skipMultiplier := l.backoffMultiplier()
+			ticksSinceLastCycle++
+			if ticksSinceLastCycle < skipMultiplier {
+				l.logger.Debugf("reasoning: backing off (%d/%d ticks)", ticksSinceLastCycle, skipMultiplier)
+				continue
+			}
+			ticksSinceLastCycle = 0
 			l.cycle(ctx)
 		case <-l.triggerCh:
 			if debounceCh == nil {
@@ -84,10 +95,31 @@ func (l *Loop) Run(ctx context.Context) {
 		case <-debounceCh:
 			debounceCh = nil
 			l.logger.Info("reasoning: running triggered cycle")
+			l.mu.Lock()
+			l.consecutiveEmpty = 0
+			l.mu.Unlock()
+			ticksSinceLastCycle = 0
 			l.cycle(ctx)
 			ticker.Reset(l.interval)
 		}
 	}
+}
+
+// backoffMultiplier returns how many ticker intervals to wait between cycles.
+// After N consecutive empty cycles: 2^(N-1) capped at 10 (i.e. 1,1,2,4,8,10).
+// Returns 1 when no backoff is needed (run every tick).
+func (l *Loop) backoffMultiplier() int {
+	l.mu.Lock()
+	n := l.consecutiveEmpty
+	l.mu.Unlock()
+	if n <= 1 {
+		return 1
+	}
+	m := 1 << (n - 1) // 2^(n-1)
+	if m > 10 {
+		m = 10
+	}
+	return m
 }
 
 func (l *Loop) cycle(ctx context.Context) {
@@ -134,6 +166,17 @@ func (l *Loop) cycle(ctx context.Context) {
 	if err != nil {
 		l.logger.Warnf("reasoning: parse response: %v", err)
 		return
+	}
+
+	// Track consecutive empty cycles for backoff.
+	if len(parsed.Expire) == 0 && len(parsed.Create) == 0 {
+		l.mu.Lock()
+		l.consecutiveEmpty++
+		l.mu.Unlock()
+	} else {
+		l.mu.Lock()
+		l.consecutiveEmpty = 0
+		l.mu.Unlock()
 	}
 
 	// Expire stale surfaces.

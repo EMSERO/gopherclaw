@@ -612,7 +612,7 @@ func (a *Agent) chatImpl(ctx context.Context, sessionKey, userText string, opts 
 		a.logger.Warnf("agent: AppendMessages failed (non-fatal): %v", err)
 	}
 
-	if resp.Text != "" {
+	if resp.Text != "" && !strings.HasPrefix(sessionKey, "reasoning:") {
 		a.appendToEidetic(sessionKey, userText, resp.Text)
 	}
 
@@ -682,7 +682,7 @@ func (a *Agent) ChatWithImages(ctx context.Context, sessionKey, userText string,
 		a.logger.Warnf("agent: AppendMessages failed (non-fatal): %v", err)
 	}
 
-	if resp.Text != "" {
+	if resp.Text != "" && !strings.HasPrefix(sessionKey, "reasoning:") {
 		a.appendToEidetic(sessionKey, userText, resp.Text)
 	}
 
